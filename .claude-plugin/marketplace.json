@@ -1,0 +1,5 @@
+{
+  "name": "clawd-at-work",
+  "owner": { "name": "Russapat" },
+  "plugins": [{ "name": "clawd-at-work", "source": "./" }]
+}

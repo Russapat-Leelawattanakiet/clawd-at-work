@@ -1,0 +1,8 @@
+{
+  "name": "clawd-at-work",
+  "version": "0.1.0",
+  "description": "Side pane with an animated Clawd mascot that tracks the skills and agents Claude is running",
+  "author": { "name": "Russapat" },
+  "license": "MIT",
+  "types": "./types/index.d.ts"
+}
