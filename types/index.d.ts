@@ -50,6 +50,10 @@ export type PlanStep = {
   count?: number
 }
 
+// What kind of work an action is: it picks Clawd's prop, the word beside
+// Clawd and the feed's icon.
+export type Mood = 'think' | 'write' | 'read' | 'search' | 'edit' | 'run' | 'web' | 'agent' | 'ask' | 'tool'
+
 // What the main Claude loop is doing in its current turn.
 export type MainTurn = {
   // Shown under the Claude bar: thinking, writing a reply, or a tool + target.
@@ -57,10 +61,72 @@ export type MainTurn = {
   // Model requests (steps) and tool calls made so far this turn.
   steps: number
   tools: number
+  // The kind of work it is doing now; absent reads as thinking.
+  mood?: Mood
+  // Tool calls that failed or were refused this turn, and when the last did.
+  failed?: number
+  failedAt?: number
+}
+
+// One main-loop tool call, for the Recent feed under a declared plan.
+export type FeedItem = {
+  id: string
+  // Plain words for the call: "Read register.tsx", "Run npm test".
+  title: string
+  mood: Mood
+  status: 'running' | 'done' | 'failed'
+  startedAt: number
+  endedAt?: number
+}
+
+// A file Claude worked on since the last prompt: read by the main loop, or
+// edited by any loop.
+export type TouchedFile = {
+  path: string
+  // The file name alone, as shown.
+  name: string
+  isEdited: boolean
+}
+
+// The main loop's last finished turn, for the Done line shown while idle.
+export type TurnSummary = {
+  durationMs: number
+  tools: number
+  failed: number
+  isAborted: boolean
+  // Ended by an API error or a refusal rather than an answer.
+  isFailed: boolean
+  endedAt: number
 }
 
 // Learned typical run time per agent type, kept across sessions in $.store.
 export type Typical = Record<string, { avgMs: number; n: number }>
+
+// One rate-limit window as the engine reports it: `five_hour` (the session
+// limit) or `seven_day` (the weekly limit).
+export type Limit = {
+  kind: string
+  // 0 to 100 (past 100 on an exceeded spend limit).
+  percentUsed: number
+  // When the window resets, ISO 8601.
+  resetsAt?: string
+}
+
+// Tokens counted in this week's window, kept across sessions in $.store; the
+// count starts over once `resetsAt` has passed.
+export type WeekTokens = { tokens: number; resetsAt: string }
+
+// What the Usage section shows.
+export type Usage = {
+  limits: Limit[]
+  // Tokens every turn of this session used (main loop and agents), all four
+  // counts summed: input, output, cache reads and cache writes.
+  sessionTokens: number
+  // Tokens counted in this week's window, across sessions with the mod.
+  weekTokens: number
+  // The session's cost in US dollars; absent where the host keeps no ledger.
+  usd?: number
+}
 
 declare module 'claude-code' {
   interface PluginState {
@@ -83,6 +149,17 @@ declare module 'claude-code' {
       expanded: string[]
       // Session copy of the learned averages, so drawing never waits on $.store.
       typical: Typical
+      // Rate-limit windows, token counts and cost for the Usage section.
+      usage: Usage
+      // The main loop's recent tool calls, newest last; cleared by each new prompt.
+      feed: FeedItem[]
+      // Every main-loop call pushed to the feed since the last prompt, past
+      // the ones it keeps too.
+      feedCount: number
+      // Files read or edited since the last prompt, in the order first touched.
+      files: TouchedFile[]
+      // The last finished main turn; null until one ends, cleared by each new prompt.
+      summary: TurnSummary | null
     }
   }
 }

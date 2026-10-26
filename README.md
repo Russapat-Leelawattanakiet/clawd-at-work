@@ -4,17 +4,22 @@ A Claude Code mod that opens a **"Claude at work"** side pane in the terminal, s
 is doing and how far along it is.
 
 ```
- ▐▛███▜▌    working
-▝▜█████▛▘   0:42
-  ▘▘ ▝▝     1 agent · 1 skill
+ ▐▛███▜▌ ✎     editing
+▝▜█████▛▘      0:42
+  ▘▘ ▝▝        1 agent · 1 skill
 
  Claude   ━━━━━━━━━━━━━━▛█▜──────────  52%  0:42
-          Edit  register.tsx  step 6 · 9 tools
+          Editing register.tsx  step 6 · 9 tools
  Plan     2/4 steps done
   ✓ Read the code         ━━━━━━━━━━━━━━━━━━ 100%
   ✓ Write the README      ━━━━━━━━━━━━━━━━━━ 100%
   ◐ Run the tests         ━━━━━━━▛█▜────────  41%
   ○ Commit                ──────────────────   0%
+ Recent   9 actions
+  ✓ Run claude plugin test .              1.6s
+  ▤ Read register.test.tsx                0.1s
+  ✎ Edit register.tsx
+ Files    ✎ register.tsx  ✎ README.md  ◦ index.d.ts
 
 Agents
 ▸ ◐ Explore  find the config loader
@@ -25,16 +30,32 @@ Skills
 
 ## What it shows
 
-- **Clawd, the mascot.** It bobs, waves and blinks while Claude works, and rests with its eyes shut when idle. Beside it
-  are the state (`working`, `agents working`, `resting`), the turn's elapsed time, and how many agents and skills ran.
+- **Clawd, the mascot.** It bobs, waves and blinks while Claude works, and rests with its eyes shut when idle. It holds
+  a prop for the kind of work Claude is doing: thought dots while thinking, a page while reading, a magnifier while
+  searching, a pen while editing, `>_` while running a command. The word beside it says the same (`reading`,
+  `editing`, `running a command`, ...). It reads **waiting for you** while Claude asks you a question or waits for you
+  to approve a plan, shows a red `!` and **hit a snag** for a few seconds when a tool fails, and cheers with sparkles
+  (**done!**) when a turn ends. Below the word are the turn's elapsed time and how many agents and skills ran.
+- **Usage.** How much of your plan's limits you've used: the 5-hour **Session** window and the 7-day **Week** window,
+  each with a bar (yellow from 70%, red from 90%) and how long until it resets. Below them, the tokens used this
+  session and this week, and the session's cost. The week's token count covers only sessions that have this mod
+  installed on this computer, and it starts over when the weekly window resets. The limit bars appear only when you're
+  logged in with a Claude subscription, after Claude's first reply.
 - **Claude bar.** Progress of the current turn. A mini Clawd runs at the head of the bar. Below it is what Claude is
-  doing right now: thinking, writing a reply, or the tool and its target (for example `Edit register.tsx`), plus step and
-  tool counts.
+  doing right now, in plain words: thinking, writing a reply, or the action and its target (for example
+  `Editing register.tsx`, `Searching for usage`), plus step and tool counts.
+- **Done.** When a turn ends, the Claude bar gives way to a one-line summary that stays until your next prompt, such as
+  `Done ✓ 2:14 · 2 files edited · 12 tools`, with any failed calls counted in red (`Stopped` if you interrupted it, `Failed` if an API error or a refusal
+  ended it).
 - **Plan.** The mod gives Claude a `plan` tool (`mcp__clawd-at-work__plan`) and a short note in its system prompt asking
   it to list its steps for any multi-step task. Each step gets its own bar, and the Claude bar becomes the real progress
   through the plan. Claude Code's own `TodoWrite` list drives the plan too.
 - **Steps (auto).** When Claude has not declared a plan, the pane builds steps from what it actually does (each tool
   call, each stretch of thinking), and repeats of the same action merge into one counted step.
+- **Recent.** Under a declared plan, the last few actions Claude took, each with an icon for its kind and how long it
+  took; a failed one is marked with a red ✗.
+- **Files.** The files Claude has edited (`✎`, first) and read (`◦`) since your last prompt, with `+N` for the ones that
+  don't fit. Files a subagent edits are listed too; files it only reads are not.
 - **Agents.** Every subagent Claude starts, newest first, each in its own color, with an estimated progress bar, run
   time and tool count. Click a row to open a dropdown of its latest tool calls and how long each took.
 - **Skills.** Every skill Claude loads, with its status and time.
@@ -42,8 +63,8 @@ Skills
 Progress estimates are learned: the mod remembers how long each agent type, turn and step usually takes (kept across
 sessions), so the bars get more accurate the more you use it. An estimate stays below 100% until the work really ends.
 
-Each new prompt you send clears finished agents, skills and the plan, so every bar starts over. Agents still running
-carry on.
+Each new prompt you send clears finished agents, skills, the plan, Recent, Files and the Done line, so every bar starts
+over. Agents still running carry on.
 
 ## Requirements
 

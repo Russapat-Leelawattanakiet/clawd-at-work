@@ -1,3 +1,9 @@
 {
-  "extends": "./.claude-plugin/types/tsconfig.json"
+  "extends": "./.claude-plugin/types/tsconfig.json",
+  "compilerOptions": {
+    // Leave out claude-code-mcp: it types every MCP tool connected when the mod
+    // last loaded (hundreds), which is too deep for tsc (TS2589). The mod's own
+    // plan tool reads its input untyped, so nothing is lost.
+    "types": ["claude-code", "claude-code-tools"]
+  }
 }
