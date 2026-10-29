@@ -1,0 +1,1936 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<style>body{margin:0}img{max-width:100%}[hidden]{display:none!important}</style>
+</head>
+<body>
+<title>Claude's Toolbox</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600;700&family=Atkinson+Hyperlegible:ital,wght@0,400;0,700;1,400&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: a sticker-book page — soft sky paper, chunky rounded stickers per group, one column on phones. */
+:root {
+  --paper: #eef4ff;
+  --paper-2: #f8fbff;
+  --card: #ffffff;
+  --ink: #17203b;
+  --ink-soft: #4b5678;
+  --line: #d4def2;
+  --term: #141a30;
+  --term-ink: #e7ecff;
+  --term-dim: #8f9bc4;
+  --coral: #e8553e;
+  --sun: #b77d00;
+  --sun-fill: #ffc83d;
+  --mint: #12977d;
+  --grape: #6b4ee6;
+  --sky: #2373d9;
+  --pink: #d1427f;
+  --teal: #11849a;
+  --orange: #d0661a;
+  --leaf: #3d8b2f;
+  --slate: #4d5f86;
+  --good: #1f8a4c;
+  --bad: #c2453a;
+  --shadow: 0 2px 0 #c6d3ee;
+  --f-display: "Fredoka", "Trebuchet MS", "Segoe UI", sans-serif;
+  --f-body: "Atkinson Hyperlegible", "Segoe UI", Verdana, sans-serif;
+  --f-mono: "JetBrains Mono", Consolas, "Courier New", monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --paper: #0f1530; --paper-2: #141b3b; --card: #19214a; --ink: #eef1ff; --ink-soft: #aab3d6;
+    --line: #2c3668; --term: #0a0e20; --term-ink: #e7ecff; --term-dim: #8590bd;
+    --coral: #ff7a63; --sun: #ffcf5a; --sun-fill: #ffcf5a; --mint: #3fd3b3; --grape: #a48dff; --sky: #6aa9ff;
+    --pink: #ff7fb4; --teal: #4fd0e6; --orange: #ff9b52; --leaf: #7fd46c; --slate: #a9b8de; --good: #4fd58a; --bad: #ff7a6e;
+    --shadow: 0 2px 0 #0a0f26; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --paper: #0f1530; --paper-2: #141b3b; --card: #19214a; --ink: #eef1ff; --ink-soft: #aab3d6;
+  --line: #2c3668; --term: #0a0e20; --term-ink: #e7ecff; --term-dim: #8590bd;
+  --coral: #ff7a63; --sun: #ffcf5a; --sun-fill: #ffcf5a; --mint: #3fd3b3; --grape: #a48dff; --sky: #6aa9ff;
+  --pink: #ff7fb4; --teal: #4fd0e6; --orange: #ff9b52; --leaf: #7fd46c; --slate: #a9b8de; --good: #4fd58a; --bad: #ff7a6e;
+  --shadow: 0 2px 0 #0a0f26; color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+body {
+  background: var(--paper);
+  color: var(--ink);
+  font: 17px/1.55 var(--f-body);
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+.wrap { max-width: 1120px; margin: 0 auto; padding-block: 28px 56px; display: grid; gap: 56px; }
+h1, h2, h3 { font-family: var(--f-display); line-height: 1.15; text-wrap: balance; margin: 0; }
+h1 { font-size: clamp(2.2rem, 6vw, 3.6rem); font-weight: 700; }
+h2 { font-size: clamp(1.6rem, 3.6vw, 2.2rem); font-weight: 700; }
+h3 { font-size: 1.2rem; font-weight: 600; }
+p { margin: 0; }
+.kicker { font: 600 .8rem/1 var(--f-display); letter-spacing: .08em; text-transform: uppercase; color: var(--ink-soft); }
+.lead { font-size: 1.15rem; color: var(--ink-soft); max-width: 60ch; }
+section > header { display: grid; gap: 8px; margin-bottom: 20px; }
+code, kbd { font-family: var(--f-mono); font-size: .88em; background: var(--paper-2); border: 1px solid var(--line); border-radius: 6px; padding: 1px 6px; }
+button { font: inherit; color: inherit; }
+:focus-visible { outline: 3px solid var(--sky); outline-offset: 2px; border-radius: 8px; }
+
+/* Hero */
+.hero { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr); gap: 32px; align-items: center; }
+.hero-copy { display: grid; gap: 16px; min-width: 0; }
+.hero-art { display: grid; place-items: center; }
+.buddy { width: min(260px, 70vw); height: auto; image-rendering: pixelated; animation: bob 2.4s ease-in-out infinite; }
+.buddy .arm { transform-origin: 46px 58px; animation: wave 1.2s ease-in-out infinite; }
+.buddy .eye { animation: blink 4s infinite; transform-origin: center; transform-box: fill-box; }
+.pills { display: flex; flex-wrap: wrap; gap: 8px; }
+.pill { font: 600 .9rem/1 var(--f-display); padding: 8px 12px; border-radius: 999px; background: var(--card); border: 2px solid var(--line); }
+
+/* Try-it terminal */
+.term { background: var(--term); color: var(--term-ink); border-radius: 18px; padding: 0; overflow: hidden; box-shadow: var(--shadow); }
+.term-bar { display: flex; align-items: center; gap: 8px; padding: 10px 14px; background: #ffffff10; }
+.term-dot { width: 12px; height: 12px; border-radius: 50%; }
+.term-bar .title { font: 600 .85rem var(--f-mono); color: var(--term-dim); margin-right: auto; margin-left: 6px; }
+.term-btn { background: #ffffff18; border: 0; color: var(--term-ink); border-radius: 8px; padding: 6px 10px; font: 600 .85rem var(--f-mono); cursor: pointer; }
+.term-body { font: 15px/1.7 var(--f-mono); padding: 18px 20px 22px; min-height: 250px; overflow-x: auto; }
+.term-body .you { color: #ffd66b; }
+.term-body .step { color: var(--term-dim); }
+.term-body .ok { color: #6fe3a5; }
+.term-body .done { color: var(--term-ink); font-weight: 600; }
+.cursor { display: inline-block; width: .6em; height: 1.1em; background: var(--term-ink); vertical-align: -0.2em; animation: blink-c 1s steps(1) infinite; }
+
+/* How a job goes */
+.flow { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; position: relative; }
+.stop { background: var(--card); border: 2px solid var(--line); border-radius: 18px; padding: 16px 12px; text-align: center; display: grid; gap: 8px; justify-items: center; box-shadow: var(--shadow); animation: glow 7.5s infinite; }
+.stop:nth-child(2) { animation-delay: 1.5s; } .stop:nth-child(3) { animation-delay: 3s; }
+.stop:nth-child(4) { animation-delay: 4.5s; } .stop:nth-child(5) { animation-delay: 6s; }
+.stop .num { font: 700 1.6rem/1 var(--f-display); width: 48px; height: 48px; border-radius: 50%; display: grid; place-items: center; color: #fff; }
+.stop p { font-size: .95rem; color: var(--ink-soft); }
+
+/* Abilities */
+.tools { display: grid; gap: 14px; margin-bottom: 18px; }
+.search { display: flex; align-items: center; gap: 10px; background: var(--card); border: 2px solid var(--line); border-radius: 14px; padding: 10px 14px; max-width: 520px; }
+.search input { border: 0; background: transparent; color: var(--ink); font: inherit; width: 100%; min-width: 0; outline: none; }
+.count { font-size: .95rem; color: var(--ink-soft); }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr)); gap: 16px; align-items: start; }
+
+/* Abilities: one grid, chips to filter; the grid starts as one row and one "Show more" opens it */
+.chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.chip { cursor: pointer; border: 2px solid var(--line); background: var(--card); border-radius: 999px; padding: 7px 14px; font: 600 .92rem/1 var(--f-display); display: inline-flex; align-items: center; gap: 8px; }
+.chip .sw { width: 12px; height: 12px; border-radius: 50%; }
+.chip[aria-pressed="true"] { background: var(--ink); color: var(--paper); border-color: var(--ink); }
+.more-btn { justify-self: center; cursor: pointer; border: 2px solid var(--c); color: var(--c); background: var(--card); border-radius: 999px; padding: 9px 20px; font: 600 .95rem/1 var(--f-display); }
+.more-btn:hover { background: color-mix(in srgb, var(--c) 12%, var(--card)); }
+.section-more { --c: var(--sky); display: block; margin: 20px auto 0; }
+
+/* A card's own "Show more": what really happens, with a real example */
+.more-link { grid-column: 1 / -1; justify-self: start; cursor: pointer; border: 0; background: none; padding: 4px 0; color: var(--c); font: 600 .95rem/1.2 var(--f-display); text-decoration: underline; text-underline-offset: 3px; }
+.deep { grid-column: 1 / -1; border-top: 1px dashed var(--line); padding-top: 10px; }
+.how { margin: 10px 0 12px; padding-left: 22px; display: grid; gap: 6px; font-size: .95rem; }
+.exlabel { font: 600 .74rem/1.3 var(--f-display); letter-spacing: .06em; text-transform: uppercase; color: var(--ink-soft); margin-bottom: 6px; }
+.ex { margin: 0; background: var(--term); color: var(--term-ink); border-radius: 12px; padding: 12px 14px; font: 13px/1.55 var(--f-mono); overflow-x: auto; white-space: pre; }
+.ex code { background: none; border: 0; padding: 0; font: inherit; color: inherit; }
+.card { background: var(--card); border: 2px solid var(--line); border-radius: 20px; padding: 18px; display: grid; grid-template-columns: 72px minmax(0, 1fr); gap: 6px 14px; align-content: start; box-shadow: var(--shadow); border-top: 6px solid var(--c); }
+.card .icon { grid-row: span 2; width: 72px; height: 72px; border-radius: 16px; background: color-mix(in srgb, var(--c) 14%, transparent); color: var(--c); display: grid; place-items: center; }
+.card .icon svg { width: 56px; height: 56px; overflow: visible; }
+.card h3 { align-self: end; }
+.card .group { font: 600 .75rem/1 var(--f-display); letter-spacing: .06em; text-transform: uppercase; color: var(--c); align-self: start; }
+.card .what { grid-column: 1 / -1; margin-top: 6px; }
+.card .say { grid-column: 1 / -1; background: var(--paper-2); border: 1px dashed var(--line); border-radius: 12px; padding: 8px 12px; font-size: .95rem; }
+.card .say b { font-family: var(--f-display); font-weight: 600; color: var(--c); margin-right: 4px; }
+.card .tip { grid-column: 1 / -1; font-size: .9rem; color: var(--ink-soft); }
+.card .tip::before { content: "Tip: "; font-weight: 700; color: var(--ink); }
+.empty { padding: 24px; text-align: center; color: var(--ink-soft); background: var(--card); border: 2px dashed var(--line); border-radius: 20px; }
+
+/* Behind the scenes: an animated scene where Claude drags each piece into its notebook */
+.scene { position: relative; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr) minmax(0, 1fr); gap: 18px; padding: 18px; background: var(--paper-2); border: 2px solid var(--line); border-radius: 22px; overflow: hidden; }
+.zone { background: var(--card); border: 2px solid var(--line); border-radius: 16px; padding: 12px; display: grid; gap: 10px; align-content: start; min-width: 0; }
+.zone.helper-room { border-style: dashed; border-color: color-mix(in srgb, var(--grape) 55%, var(--line)); }
+.zone-title { font: 600 .95rem/1.2 var(--f-display); }
+.zone-sub { font-size: .8rem; color: var(--ink-soft); margin-top: -6px; }
+.home, .slot, .rslot { height: 38px; border-radius: 10px; }
+.slot { border: 2px dashed var(--line); }
+.rslot { border: 2px dashed color-mix(in srgb, var(--grape) 35%, var(--line)); }
+.noise { display: flex; flex-wrap: wrap; gap: 6px; min-height: 30px; }
+.noise span { font: 600 .78rem/1 var(--f-mono); padding: 6px 8px; border-radius: 8px; background: color-mix(in srgb, var(--grape) 12%, var(--card)); color: var(--ink-soft); animation: pop .3s ease-out; }
+.hookbar { grid-column: 1 / -1; display: flex; align-items: center; gap: 10px; font-size: .9rem; color: var(--ink-soft); border-top: 2px dashed var(--line); padding-top: 12px; }
+.hookbar svg { width: 26px; height: 26px; color: var(--orange); flex: none; }
+.hookbar.on { color: var(--ink); }
+.hookbar.on svg { animation: spin 1.2s linear infinite; }
+.piece { --k: var(--ink-soft); position: absolute; left: 0; top: 0; z-index: 2; display: flex; align-items: center; gap: 8px; padding: 0 10px; border-radius: 10px; border: 2px solid color-mix(in srgb, var(--k) 55%, var(--line)); background: color-mix(in srgb, var(--k) 14%, var(--card)); font: 600 .86rem/1 var(--f-display); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; opacity: 0; transition: left .9s ease-in-out, top .9s ease-in-out, width .9s ease-in-out, opacity .4s, box-shadow .3s; }
+.piece::before { content: ""; width: 10px; height: 10px; border-radius: 3px; background: var(--k); flex: none; }
+.piece.held { box-shadow: 0 8px 16px rgba(10, 16, 40, .22); }
+.piece.ping { animation: pulse .45s ease-in-out 2; }
+.p-md { --k: var(--teal); } .p-menu, .p-skill { --k: var(--pink); } .p-you { --k: var(--coral); }
+.p-task, .p-agent, .p-report { --k: var(--grape); }
+.bot { position: absolute; left: 0; top: 0; width: 34px; height: 38px; z-index: 3; pointer-events: none; transition: left .8s ease-in-out, top .8s ease-in-out, opacity .4s; }
+.bot.walk { animation: bob .35s ease-in-out infinite; }
+.scene-bar { display: flex; align-items: center; gap: 12px; margin-top: 12px; flex-wrap: wrap; }
+.scene-cap { flex: 1 1 260px; font-size: 1rem; min-height: 3.2em; display: flex; align-items: center; }
+.scene-dots { display: flex; gap: 5px; }
+.scene-dots i { width: 9px; height: 9px; border-radius: 50%; background: var(--line); }
+.scene-dots i.on { background: var(--sky); }
+.scene-btn { cursor: pointer; border: 2px solid var(--line); background: var(--card); border-radius: 10px; padding: 7px 12px; font: 600 .9rem/1 var(--f-display); }
+.scene-btn:hover { border-color: var(--sky); }
+@keyframes pop { from { transform: scale(.6); opacity: 0 } }
+@media (max-width: 760px) { .scene { grid-template-columns: minmax(0, 1fr); } }
+.kinds { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 240px), 1fr)); gap: 14px; margin-top: 22px; }
+.kind { --k: var(--ink); background: var(--card); border: 2px solid var(--line); border-top: 6px solid var(--k); border-radius: 18px; padding: 16px; display: grid; gap: 8px; align-content: start; }
+.kind h3 { color: var(--k); }
+.kind dl { margin: 0; display: grid; gap: 6px; }
+.kind dt { font: 600 .74rem/1.2 var(--f-display); letter-spacing: .06em; text-transform: uppercase; color: var(--ink-soft); }
+.kind dd { margin: 0 0 4px; font-size: .95rem; }
+.kind .lock { font-size: .9rem; color: var(--ink-soft); border-top: 1px dashed var(--line); padding-top: 8px; }
+.steps4 { list-style: none; margin: 22px 0 0; padding: 0; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; counter-reset: s; }
+.steps4 li { counter-increment: s; background: var(--paper-2); border: 2px solid var(--line); border-radius: 16px; padding: 14px; display: grid; gap: 6px; font-size: .95rem; }
+.steps4 li::before { content: counter(s); font: 700 1rem/1 var(--f-display); color: var(--paper); background: var(--ink); width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; }
+.steps4 b { font-family: var(--f-display); font-weight: 600; }
+@media (max-width: 860px) {
+  .steps4 { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* Connectors */
+.legend { display: flex; flex-wrap: wrap; gap: 10px; }
+.wall { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 240px), 1fr)); gap: 12px; }
+.plug { background: var(--card); border: 2px solid var(--line); border-radius: 16px; padding: 12px; display: grid; grid-template-columns: 44px minmax(0, 1fr); gap: 2px 12px; align-items: center; }
+.plug .badge { grid-row: span 3; width: 44px; height: 44px; border-radius: 12px; display: grid; place-items: center; color: #fff; font: 700 1.05rem var(--f-display); }
+.plug b { font-family: var(--f-display); font-weight: 600; }
+.plug span.use { font-size: .9rem; color: var(--ink-soft); }
+.status { justify-self: start; font: 600 .72rem/1 var(--f-display); letter-spacing: .05em; text-transform: uppercase; border-radius: 999px; padding: 4px 8px; margin-top: 4px; }
+.status.ready { background: color-mix(in srgb, var(--good) 16%, transparent); color: var(--good); }
+.status.signin { background: color-mix(in srgb, var(--sun) 18%, transparent); color: var(--sun); }
+.status.trouble { background: color-mix(in srgb, var(--bad) 16%, transparent); color: var(--bad); }
+.status.builtin { background: color-mix(in srgb, var(--sky) 16%, transparent); color: var(--sky); }
+.note { font-size: .9rem; color: var(--ink-soft); margin-top: 12px; }
+
+/* Shortcuts and commands: filterable tables that turn into stacked rows on phones */
+.ktools { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center; }
+.ktools .search { flex: 1 1 260px; }
+.seg { display: inline-flex; border: 2px solid var(--line); border-radius: 999px; overflow: hidden; background: var(--card); }
+.seg button { cursor: pointer; border: 0; background: none; padding: 8px 16px; font: 600 .92rem/1 var(--f-display); }
+.seg button[aria-pressed="true"] { background: var(--ink); color: var(--paper); }
+.tbl-wrap { background: var(--card); border: 2px solid var(--line); border-radius: 20px; overflow: hidden; box-shadow: var(--shadow); }
+.tbl { width: 100%; border-collapse: collapse; font-size: .95rem; }
+.tbl th { text-align: left; font: 600 .76rem/1.2 var(--f-display); letter-spacing: .06em; text-transform: uppercase; color: var(--ink-soft); background: var(--paper-2); padding: 12px 14px; border-bottom: 2px solid var(--line); }
+.tbl td { padding: 10px 14px; border-top: 1px solid var(--line); vertical-align: top; overflow-wrap: anywhere; }
+.tbl tr:first-child td { border-top: 0; }
+.tbl td.nm { font-family: var(--f-display); font-weight: 600; border-left: 5px solid var(--c); }
+.tbl td.nm code { font-weight: 600; color: var(--c); background: none; border: 0; padding: 0; }
+.tbl td.keys kbd { display: inline-block; margin: 1px 0; white-space: nowrap; }
+.tbl td.none { text-align: center; color: var(--ink-soft); }
+.tbl .ex { white-space: pre-wrap; overflow-wrap: anywhere; padding: 6px 10px; font-size: 12.5px; }
+.place { font: 600 .74rem/1.3 var(--f-display); letter-spacing: .04em; text-transform: uppercase; color: var(--c); }
+.na { font-size: .88rem; color: var(--ink-soft); font-style: italic; }
+@media (max-width: 680px) {
+  .tbl thead { display: none; }
+  .tbl, .tbl tbody, .tbl tr, .tbl td { display: block; }
+  .tbl tr { padding: 12px 14px; border-top: 1px solid var(--line); border-left: 5px solid var(--c); }
+  .tbl tr:first-child { border-top: 0; }
+  .tbl td, .tbl td.nm { border: 0; padding: 3px 0; }
+}
+
+/* Habits */
+.habits { display: grid; gap: 16px; }
+.habit { background: var(--card); border: 2px solid var(--line); border-radius: 20px; padding: 18px; display: grid; gap: 12px; box-shadow: var(--shadow); }
+.habit h3 { display: flex; gap: 10px; align-items: baseline; }
+.habit h3 .n { font: 700 1rem/1 var(--f-display); color: var(--paper); background: var(--ink); border-radius: 8px; padding: 4px 8px; }
+.pair { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 14px; }
+.bubble { position: relative; border-radius: 16px; padding: 12px 14px; display: grid; gap: 6px; min-width: 0; }
+.bubble .lbl { font: 600 .78rem/1 var(--f-display); letter-spacing: .06em; text-transform: uppercase; }
+.bubble.bad { background: color-mix(in srgb, var(--bad) 10%, transparent); border: 2px solid color-mix(in srgb, var(--bad) 40%, transparent); }
+.bubble.bad .lbl { color: var(--bad); }
+.bubble.good { background: color-mix(in srgb, var(--good) 10%, transparent); border: 2px solid color-mix(in srgb, var(--good) 45%, transparent); }
+.bubble.good .lbl { color: var(--good); }
+.bubble q { font-style: italic; quotes: "“" "”"; }
+.result { display: flex; align-items: center; gap: 8px; font-size: .9rem; color: var(--ink-soft); }
+.face { width: 26px; height: 26px; flex: none; }
+.bad .face { animation: wobble 2s ease-in-out infinite; }
+.good .face { animation: hop 1.6s ease-in-out infinite; }
+
+/* Quiz */
+.quiz { background: var(--card); border: 2px solid var(--line); border-radius: 22px; padding: 22px; display: grid; gap: 16px; box-shadow: var(--shadow); max-width: 760px; }
+.qtop { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
+.dots { display: flex; gap: 6px; }
+.dots i { width: 12px; height: 12px; border-radius: 50%; background: var(--line); }
+.dots i.ok { background: var(--good); } .dots i.no { background: var(--bad); } .dots i.now { background: var(--sky); }
+.answers { display: grid; gap: 10px; }
+.answer { text-align: left; cursor: pointer; border: 2px solid var(--line); background: var(--paper-2); border-radius: 14px; padding: 12px 14px; font-size: 1rem; }
+.answer:hover:not(:disabled) { border-color: var(--sky); }
+.answer.right { border-color: var(--good); background: color-mix(in srgb, var(--good) 14%, transparent); }
+.answer.wrong { border-color: var(--bad); background: color-mix(in srgb, var(--bad) 12%, transparent); }
+.why { font-size: .95rem; }
+.qbtn { justify-self: start; cursor: pointer; border: 0; border-radius: 12px; padding: 10px 18px; background: var(--ink); color: var(--paper); font: 600 1rem var(--f-display); }
+.score { font: 700 1.6rem var(--f-display); }
+
+footer { text-align: center; color: var(--ink-soft); font-size: .9rem; border-top: 2px dashed var(--line); padding-top: 20px; }
+
+/* Icon motions */
+.a-bob { animation: bob 2s ease-in-out infinite; }
+.a-slide { animation: slide 2.4s ease-in-out infinite; }
+.a-spin { animation: spin 6s linear infinite; transform-origin: center; transform-box: fill-box; }
+.a-blink { animation: blink-c 1s steps(1) infinite; }
+.a-pulse { animation: pulse 1.8s ease-in-out infinite; transform-origin: center; transform-box: fill-box; }
+.a-grow { animation: grow 2.4s ease-in-out infinite; transform-origin: bottom; transform-box: fill-box; }
+.a-write { animation: write 2s ease-in-out infinite; }
+.a-hop1 { animation: hop 1.4s ease-in-out infinite; }
+.a-hop2 { animation: hop 1.4s ease-in-out .2s infinite; }
+.a-hop3 { animation: hop 1.4s ease-in-out .4s infinite; }
+.a-swing { animation: swing 2s ease-in-out infinite; transform-origin: top center; transform-box: fill-box; }
+.a-dash { stroke-dasharray: 6 6; animation: dash 1.2s linear infinite; }
+.a-draw { stroke-dasharray: 60; animation: draw 2.4s ease-in-out infinite; }
+.a-fade { animation: fade 2.4s ease-in-out infinite; }
+.a-tick1 { animation: fade 3s ease-in-out infinite; } .a-tick2 { animation: fade 3s ease-in-out .5s infinite; } .a-tick3 { animation: fade 3s ease-in-out 1s infinite; }
+
+@keyframes bob { 0%,100% { transform: translateY(0) } 50% { transform: translateY(-4px) } }
+@keyframes wave { 0%,100% { transform: rotate(0) } 50% { transform: rotate(-24deg) } }
+@keyframes blink { 0%,92%,100% { transform: scaleY(1) } 95% { transform: scaleY(.1) } }
+@keyframes blink-c { 50% { opacity: 0 } }
+@keyframes slide { 0%,100% { transform: translate(0,0) } 50% { transform: translate(10px,6px) } }
+@keyframes spin { to { transform: rotate(360deg) } }
+@keyframes pulse { 0%,100% { transform: scale(1) } 50% { transform: scale(1.12) } }
+@keyframes grow { 0%,100% { transform: scaleY(.55) } 50% { transform: scaleY(1) } }
+@keyframes write { 0%,100% { transform: translate(0,0) } 50% { transform: translate(12px,0) } }
+@keyframes hop { 0%,100% { transform: translateY(0) } 40% { transform: translateY(-6px) } }
+@keyframes swing { 0%,100% { transform: rotate(-10deg) } 50% { transform: rotate(10deg) } }
+@keyframes dash { to { stroke-dashoffset: -12 } }
+@keyframes draw { 0% { stroke-dashoffset: 60 } 60%,100% { stroke-dashoffset: 0 } }
+@keyframes fade { 0%,100% { opacity: .25 } 50% { opacity: 1 } }
+@keyframes wobble { 0%,100% { transform: rotate(0) } 25% { transform: rotate(-8deg) } 75% { transform: rotate(8deg) } }
+@keyframes glow { 0%,18%,100% { transform: translateY(0); border-color: var(--line) } 6%,12% { transform: translateY(-6px); border-color: var(--sky) } }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+}
+@media (max-width: 760px) {
+  .hero { grid-template-columns: minmax(0, 1fr); }
+  .hero-art { order: -1; }
+  .flow { grid-template-columns: minmax(0, 1fr); }
+  .pair { grid-template-columns: minmax(0, 1fr); }
+  body { font-size: 16px; }
+}
+</style>
+
+<div class="wrap">
+  <!-- Hero -->
+  <section class="hero" aria-labelledby="t-hero">
+    <div class="hero-copy">
+      <span class="kicker">A picture guide for curious people</span>
+      <h1 id="t-hero">Claude's Toolbox</h1>
+      <p class="lead">Claude is a helper that can read, build and check things on your computer, but only when you say so. Here is everything in its toolbox, with pictures, examples and good habits.</p>
+      <div class="pills" aria-label="What is inside">
+        <span class="pill" id="pill-abilities">33 abilities</span>
+        <span class="pill" id="pill-connectors">30 connectors</span>
+        <span class="pill" id="pill-keys">shortcuts</span>
+        <span class="pill" id="pill-cmds">commands</span>
+        <span class="pill">9 good habits</span>
+        <span class="pill">6-question quiz</span>
+      </div>
+    </div>
+    <div class="hero-art" aria-hidden="true">
+      <svg class="buddy" viewBox="0 0 64 72" shape-rendering="crispEdges">
+        <rect x="30" y="2" width="4" height="8" fill="var(--ink)"/>
+        <rect x="27" y="0" width="10" height="6" rx="0" fill="var(--sun-fill)"/>
+        <rect x="12" y="10" width="40" height="30" fill="var(--coral)"/>
+        <rect x="16" y="14" width="32" height="20" fill="var(--paper-2)"/>
+        <rect class="eye" x="22" y="20" width="6" height="8" fill="var(--ink)"/>
+        <rect class="eye" x="36" y="20" width="6" height="8" fill="var(--ink)"/>
+        <rect x="26" y="30" width="12" height="2" fill="var(--ink)"/>
+        <rect x="18" y="42" width="28" height="20" fill="var(--sky)"/>
+        <rect x="26" y="46" width="12" height="8" fill="var(--sun-fill)"/>
+        <rect x="8" y="44" width="8" height="12" fill="var(--coral)"/>
+        <g class="arm"><rect x="48" y="36" width="8" height="22" fill="var(--coral)"/><rect x="47" y="32" width="10" height="6" fill="var(--sun-fill)"/></g>
+        <rect x="20" y="62" width="8" height="8" fill="var(--ink)"/>
+        <rect x="36" y="62" width="8" height="8" fill="var(--ink)"/>
+      </svg>
+    </div>
+  </section>
+
+  <!-- Try-it terminal -->
+  <section aria-labelledby="t-term">
+    <header>
+      <span class="kicker">Watch it work</span>
+      <h2 id="t-term">You type a wish, Claude does the steps</h2>
+    </header>
+    <div class="term">
+      <div class="term-bar">
+        <span class="term-dot" style="background:#ff6b5e"></span>
+        <span class="term-dot" style="background:#ffc83d"></span>
+        <span class="term-dot" style="background:#3fd3b3"></span>
+        <span class="title">pretend terminal</span>
+        <button class="term-btn" id="term-pause" type="button" aria-pressed="false">Pause</button>
+      </div>
+      <div class="term-body" id="term" aria-live="polite"></div>
+    </div>
+  </section>
+
+  <!-- How a job goes -->
+  <section aria-labelledby="t-flow">
+    <header>
+      <span class="kicker">Every job, the same five steps</span>
+      <h2 id="t-flow">How a job goes</h2>
+    </header>
+    <div class="flow">
+      <div class="stop"><span class="num" style="background:var(--coral)">1</span><h3>You ask</h3><p>Say what you want, in your own words.</p></div>
+      <div class="stop"><span class="num" style="background:var(--sun)">2</span><h3>Claude plans</h3><p>It works out the steps, and asks if something is unclear.</p></div>
+      <div class="stop"><span class="num" style="background:var(--grape)">3</span><h3>It does</h3><p>Reads, writes, runs, or sends helpers.</p></div>
+      <div class="stop"><span class="num" style="background:var(--mint)">4</span><h3>It checks</h3><p>Runs tests or looks again to be sure.</p></div>
+      <div class="stop"><span class="num" style="background:var(--sky)">5</span><h3>It tells you</h3><p>What changed, and what is left.</p></div>
+    </div>
+  </section>
+
+  <!-- Abilities -->
+  <section aria-labelledby="t-abilities">
+    <header>
+      <span class="kicker">The toolbox</span>
+      <h2 id="t-abilities">Everything Claude can do</h2>
+      <p class="lead">Tap a color to see one group, or search for a word like “email”, “test” or “skill”. Tap “Show more” on a card to see what really happens, with a real example.</p>
+    </header>
+    <div class="tools">
+      <label class="search" for="q">
+        <svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true"><circle cx="10" cy="10" r="6" fill="none" stroke="currentColor" stroke-width="2.4"/><path d="M15 15l5 5" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg>
+        <input id="q" type="search" placeholder="Search the toolbox" autocomplete="off">
+      </label>
+      <div class="chips" id="chips" role="group" aria-label="Show a group"></div>
+      <p class="count" id="count" aria-live="polite"></p>
+    </div>
+    <div class="grid" id="grid"></div>
+    <p class="empty" id="none" hidden></p>
+    <button class="more-btn section-more" id="section-more" type="button" aria-controls="grid"></button>
+  </section>
+
+  <!-- Behind the scenes -->
+  <section aria-labelledby="t-behind">
+    <header>
+      <span class="kicker">Behind the scenes</span>
+      <h2 id="t-behind">What really happens inside Claude</h2>
+      <p class="lead">Claude keeps a notebook of everything it is working with, called its context. Some pages go in at the start, some only when they are needed, and helpers write in a notebook of their own.</p>
+    </header>
+
+    <div class="scene" id="scene" aria-hidden="true">
+      <div class="zone">
+        <p class="zone-title">On your computer</p>
+        <p class="zone-sub">Files Claude can pick up</p>
+        <div class="home" data-home="md"></div>
+        <div class="home" data-home="menu"></div>
+        <div class="home" data-home="skill"></div>
+        <div class="home" data-home="agentfile"></div>
+      </div>
+      <div class="zone">
+        <p class="zone-title">Claude's notebook (context)</p>
+        <p class="zone-sub">Everything Claude can see right now</p>
+        <div class="slot" data-slot="1"></div>
+        <div class="slot" data-slot="2"></div>
+        <div class="slot" data-slot="3"></div>
+        <div class="slot" data-slot="4"></div>
+        <div class="slot" data-slot="5"></div>
+      </div>
+      <div class="zone helper-room">
+        <p class="zone-title">Helper's own notebook</p>
+        <p class="zone-sub">A separate room. It never sees your chat.</p>
+        <div class="rslot" data-r="1"></div>
+        <div class="rslot" data-r="2"></div>
+        <div class="noise" id="noise"></div>
+        <div class="rslot" data-r="3"></div>
+      </div>
+      <div class="hookbar" id="hookbar">
+        <svg viewBox="0 0 64 64"><circle cx="32" cy="32" r="9" fill="none" stroke="currentColor" stroke-width="4"/><path d="M32 8v8M32 48v8M8 32h8M48 32h8M15 15l6 6M43 43l6 6M15 49l6-6M43 21l6-6" stroke="currentColor" stroke-width="4" stroke-linecap="round"/></svg>
+        <span>Hook: Claude Code runs it by itself when something happens. It adds nothing to the notebook.</span>
+      </div>
+
+      <div class="piece p-md" data-p="md">CLAUDE.md</div>
+      <div class="piece p-menu" data-p="menu">Skill menu (names only)</div>
+      <div class="piece p-skill" data-p="skill">SKILL.md: code-review recipe</div>
+      <div class="piece p-agent" data-p="agentfile">agents/reviewer.md</div>
+      <div class="piece p-you" data-p="you">“Review my changes”</div>
+      <div class="piece p-task" data-p="task">Task: find risky changes</div>
+      <div class="piece p-report" data-p="report">Helper's report</div>
+
+      <svg class="bot" id="buddy" viewBox="0 0 64 72" shape-rendering="crispEdges">
+        <rect x="27" y="0" width="10" height="6" fill="var(--sun-fill)"/><rect x="30" y="4" width="4" height="6" fill="var(--ink)"/>
+        <rect x="12" y="10" width="40" height="30" fill="var(--coral)"/><rect x="16" y="14" width="32" height="20" fill="var(--paper-2)"/>
+        <rect x="22" y="20" width="6" height="8" fill="var(--ink)"/><rect x="36" y="20" width="6" height="8" fill="var(--ink)"/>
+        <rect x="18" y="42" width="28" height="20" fill="var(--sky)"/><rect x="8" y="44" width="8" height="12" fill="var(--coral)"/><rect x="48" y="44" width="8" height="12" fill="var(--coral)"/>
+        <rect x="20" y="62" width="8" height="8" fill="var(--ink)"/><rect x="36" y="62" width="8" height="8" fill="var(--ink)"/>
+      </svg>
+      <svg class="bot" id="helperbot" viewBox="0 0 64 72" shape-rendering="crispEdges">
+        <rect x="12" y="10" width="40" height="30" fill="var(--grape)"/><rect x="16" y="14" width="32" height="20" fill="var(--paper-2)"/>
+        <rect x="22" y="20" width="6" height="8" fill="var(--ink)"/><rect x="36" y="20" width="6" height="8" fill="var(--ink)"/>
+        <rect x="18" y="42" width="28" height="20" fill="var(--grape)"/><rect x="20" y="62" width="8" height="8" fill="var(--ink)"/><rect x="36" y="62" width="8" height="8" fill="var(--ink)"/>
+      </svg>
+    </div>
+    <div class="scene-bar">
+      <button class="scene-btn" type="button" id="scene-play" aria-pressed="false">Pause</button>
+      <button class="scene-btn" type="button" id="scene-replay">Replay</button>
+      <p class="scene-cap" id="scene-cap" aria-live="polite"></p>
+      <span class="scene-dots" id="scene-dots" aria-hidden="true"></span>
+    </div>
+
+    <div class="kinds">
+      <article class="kind" style="--k:var(--teal)">
+        <h3>CLAUDE.md</h3>
+        <dl>
+          <dt>When it starts</dt><dd>By itself, at the start of every chat.</dd>
+          <dt>What gets added</dt><dd>Its whole text goes into the notebook.</dd>
+          <dt>How long it stays</dt><dd>All chat long, even after /compact. It takes up space on every turn, so keep it short.</dd>
+        </dl>
+        <p class="lock">It is advice, not a lock.</p>
+      </article>
+      <article class="kind" style="--k:var(--pink)">
+        <h3>Skill</h3>
+        <dl>
+          <dt>When it starts</dt><dd>You type /its-name, or your ask matches its description.</dd>
+          <dt>What gets added</dt><dd>The full recipe, as one message. Any commands inside it run first and fill in their results.</dd>
+          <dt>How long it stays</dt><dd>For the rest of the chat. Before that, only its menu line is there.</dd>
+        </dl>
+        <p class="lock">Its extra files are read only if the recipe says so.</p>
+      </article>
+      <article class="kind" style="--k:var(--grape)">
+        <h3>Helper agent</h3>
+        <dl>
+          <dt>When it starts</dt><dd>Claude hands over a job that matches its description, or you @-mention it.</dd>
+          <dt>What gets added</dt><dd>Nothing to your notebook while it works. It gets a fresh notebook of its own.</dd>
+          <dt>How long it stays</dt><dd>Only its final report comes back to you.</dd>
+        </dl>
+        <p class="lock">It does not see your chat, only the task.</p>
+      </article>
+      <article class="kind" style="--k:var(--orange)">
+        <h3>Hook</h3>
+        <dl>
+          <dt>When it starts</dt><dd>When an event happens, like a file being edited.</dd>
+          <dt>What gets added</dt><dd>Usually nothing. Claude Code runs the code itself.</dd>
+          <dt>How long it stays</dt><dd>It just runs each time. It can block an action, which a written rule cannot promise.</dd>
+        </dl>
+        <p class="lock">This is the way to make a rule a lock.</p>
+      </article>
+    </div>
+
+    <ol class="steps4" aria-label="One request, step by step">
+      <li><b>Already in the notebook</b>CLAUDE.md, the memory notes, the tool names and the skill menu.</li>
+      <li><b>Your message goes in</b>“Review my changes.”</li>
+      <li><b>Claude picks a tool</b>A skill adds its recipe, or a helper gets a task and sends back one report.</li>
+      <li><b>While it works</b>Folder rules load when it touches those files, and hooks may run.</li>
+    </ol>
+    <p class="note">From the official Claude Code docs. A few things are not described there, like exactly how Claude chooses between a skill and a helper.</p>
+  </section>
+
+  <!-- Connectors -->
+  <section aria-labelledby="t-conn">
+    <header>
+      <span class="kicker">Plugs into your apps</span>
+      <h2 id="t-conn">Every connector</h2>
+      <p class="lead">A connector is a plug between Claude and another app. Claude asks before it sends or changes anything there.</p>
+      <div class="legend">
+        <span class="status ready">Ready</span>
+        <span class="status signin">Needs sign-in</span>
+        <span class="status trouble">Having trouble</span>
+        <span class="status builtin">Built in</span>
+      </div>
+    </header>
+    <div class="wall" id="wall"></div>
+    <button class="more-btn section-more" id="wall-more" type="button" aria-controls="wall" style="--c:var(--mint)"></button>
+    <p class="note">The status chips show how each connector looked on the computer this guide was made on. On yours, check with <code>/mcp</code>.</p>
+  </section>
+
+  <!-- Shortcuts -->
+  <section aria-labelledby="t-keys">
+    <header>
+      <span class="kicker">Speed keys</span>
+      <h2 id="t-keys">Keyboard shortcuts</h2>
+      <p class="lead">Keys that save you typing. Pick Mac or Windows to see the right keys, and tap a color to see one place.</p>
+    </header>
+    <div class="tools">
+      <div class="ktools">
+        <label class="search" for="kq">
+          <svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true"><circle cx="10" cy="10" r="6" fill="none" stroke="currentColor" stroke-width="2.4"/><path d="M15 15l5 5" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg>
+          <input id="kq" type="search" placeholder="Search shortcuts" autocomplete="off">
+        </label>
+        <div class="seg" id="os-seg" role="group" aria-label="Show keys for">
+          <button type="button" data-os="mac">Mac</button><button type="button" data-os="win">Windows</button>
+        </div>
+      </div>
+      <div class="chips" id="key-chips" role="group" aria-label="Show a place"></div>
+      <p class="count" id="key-count" aria-live="polite"></p>
+    </div>
+    <div class="tbl-wrap">
+      <table class="tbl">
+        <thead><tr><th>Name</th><th>Shortcut key</th><th>Usage</th><th>Where</th></tr></thead>
+        <tbody id="keys-body"></tbody>
+      </table>
+    </div>
+    <button class="more-btn section-more" id="keys-more" type="button" aria-controls="keys-body" style="--c:var(--coral)"></button>
+    <p class="note">On a Mac, the Option shortcuts in the terminal only work after you set Option to act as Meta in your terminal settings. Desktop app shortcuts are for its Code tab. The claude.ai chat has no official shortcut list yet. From the official docs, October 2026.</p>
+  </section>
+
+  <!-- Commands -->
+  <section aria-labelledby="t-cmds">
+    <header>
+      <span class="kicker">Magic words</span>
+      <h2 id="t-cmds">Every Claude Code command</h2>
+      <p class="lead">Slash commands start with / and go in the chat. Shell commands start with claude and go in your terminal before the chat opens.</p>
+    </header>
+    <div class="tools">
+      <label class="search" for="cq">
+        <svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true"><circle cx="10" cy="10" r="6" fill="none" stroke="currentColor" stroke-width="2.4"/><path d="M15 15l5 5" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg>
+        <input id="cq" type="search" placeholder="Search commands" autocomplete="off">
+      </label>
+      <div class="chips" id="cmd-chips" role="group" aria-label="Show a group"></div>
+      <p class="count" id="cmd-count" aria-live="polite"></p>
+    </div>
+    <div class="tbl-wrap">
+      <table class="tbl">
+        <thead><tr><th>Name</th><th>Usage</th><th>Example</th></tr></thead>
+        <tbody id="cmds-body"></tbody>
+      </table>
+    </div>
+    <button class="more-btn section-more" id="cmds-more" type="button" aria-controls="cmds-body" style="--c:var(--grape)"></button>
+    <p class="note">Some commands depend on your plan, computer or version. Type <code>/</code> in Claude Code to see the ones you have. From the official docs, October 2026.</p>
+  </section>
+
+  <!-- Habits -->
+  <section aria-labelledby="t-habits">
+    <header>
+      <span class="kicker">Best practice</span>
+      <h2 id="t-habits">Good habits</h2>
+      <p class="lead">The same wish can go two ways. Clear asks get great results.</p>
+    </header>
+    <div class="habits" id="habits"></div>
+  </section>
+
+  <!-- Quiz -->
+  <section aria-labelledby="t-quiz">
+    <header>
+      <span class="kicker">Check yourself</span>
+      <h2 id="t-quiz">Mini quiz</h2>
+    </header>
+    <div class="quiz" id="quiz"></div>
+  </section>
+
+  <footer>An unofficial guide · made with Claude</footer>
+</div>
+
+<script>
+// ---------- groups: one sticker color each ----------
+const GROUPS = [
+  { id: 'where', name: 'Ways to use Claude', c: 'var(--slate)' },
+  { id: 'look', name: 'Look & learn', c: 'var(--sky)' },
+  { id: 'build', name: 'Build', c: 'var(--coral)' },
+  { id: 'plan', name: 'Plan & think', c: 'var(--sun)' },
+  { id: 'team', name: 'Team up', c: 'var(--grape)' },
+  { id: 'connect', name: 'Connect', c: 'var(--mint)' },
+  { id: 'create', name: 'Create', c: 'var(--pink)' },
+  { id: 'remember', name: 'Remember & customize', c: 'var(--teal)' },
+  { id: 'automate', name: 'Automate', c: 'var(--orange)' },
+  { id: 'safe', name: 'Stay safe', c: 'var(--leaf)' },
+]
+
+// ---------- little animated pictures (64x64, drawn in the card's color) ----------
+const S = 'fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"'
+const page = `<rect x="12" y="8" width="34" height="46" rx="5" ${S}/>`
+const lines = `<path d="M19 20h20M19 28h20M19 36h14" ${S}/>`
+const ICONS = {
+  read: `${page}${lines}<g class="a-slide"><circle cx="40" cy="40" r="9" ${S}/><path d="M47 47l8 8" ${S}/></g>`,
+  search: `<path d="M8 14h30M8 24h40M8 34h22M8 44h34" ${S} opacity=".5"/><g class="a-slide"><circle cx="34" cy="30" r="11" ${S}/><path d="M42 38l10 10" ${S}/></g>`,
+  see: `<rect x="8" y="12" width="48" height="36" rx="5" ${S}/><path d="M12 44l14-14 10 10 6-6 10 10" ${S}/><circle class="a-pulse" cx="44" cy="22" r="4" fill="currentColor"/>`,
+  web: `<g class="a-spin"><circle cx="32" cy="32" r="22" ${S}/><ellipse cx="32" cy="32" rx="9" ry="22" ${S}/><path d="M10 32h44M14 21h36M14 43h36" ${S}/></g>`,
+  explain: `<path d="M22 40c-5-4-8-9-8-15a18 18 0 0 1 36 0c0 6-3 11-8 15v6H22z" ${S}/><path d="M24 52h16" ${S}/><path class="a-fade" d="M32 4v4M8 12l3 3M56 12l-3 3" ${S}/>`,
+  write: `${page}<path d="M19 20h20M19 28h12" ${S}/><g class="a-write"><path d="M30 44l16-16 5 5-16 16h-5z" ${S}/></g>`,
+  run: `<rect x="6" y="10" width="52" height="40" rx="6" ${S}/><path d="M14 24l7 6-7 6" ${S}/><rect class="a-blink" x="26" y="34" width="12" height="4" fill="currentColor"/>`,
+  office: `<rect x="20" y="6" width="30" height="38" rx="4" ${S} opacity=".5"/><g class="a-bob"><rect x="12" y="16" width="30" height="40" rx="4" ${S}/><path d="M18 28h18M18 36h18M18 44h10" ${S}/></g>`,
+  notebook: `<rect x="10" y="8" width="44" height="14" rx="3" ${S}/><rect x="10" y="26" width="44" height="14" rx="3" ${S}/><rect x="10" y="44" width="44" height="12" rx="3" ${S}/><path class="a-tick3" d="M16 50h18" ${S}/><path class="a-tick1" d="M16 15h12" ${S}/>`,
+  git: `<circle cx="18" cy="12" r="5" ${S}/><circle cx="18" cy="52" r="5" ${S}/><circle class="a-pulse" cx="46" cy="24" r="5" ${S}/><path d="M18 17v30M46 29c0 12-28 8-28 18" ${S}/>`,
+  plan: `<path d="M10 14l14-6 16 6 14-6v42l-14 6-16-6-14 6z" ${S}/><path class="a-draw" d="M16 40c8-4 8-16 18-18s10 8 16 4" ${S} stroke-dasharray="4 5"/>`,
+  ask: `<path d="M10 14h44v28H30l-10 10V42H10z" ${S}/><g class="a-bob"><path d="M27 23a5 5 0 1 1 7 5c-2 1-2 2-2 4" ${S}/><circle cx="32" cy="37" r="1.8" fill="currentColor"/></g>`,
+  steps: `<rect x="10" y="8" width="44" height="48" rx="5" ${S}/><path class="a-tick1" d="M16 20l3 3 6-6" ${S}/><path class="a-tick2" d="M16 32l3 3 6-6" ${S}/><path class="a-tick3" d="M16 44l3 3 6-6" ${S}/><path d="M30 20h18M30 32h18M30 44h18" ${S}/>`,
+  effort: `<path d="M10 44a22 22 0 0 1 44 0" ${S}/><g class="a-swing" style="transform-origin:32px 44px"><path d="M32 44L44 26" ${S}/></g><circle cx="32" cy="44" r="3" fill="currentColor"/>`,
+  helpers: `<g class="a-hop1"><rect x="4" y="26" width="16" height="16" rx="5" ${S}/><path d="M9 33h1M14 33h1" ${S}/></g><g class="a-hop2"><rect x="24" y="18" width="16" height="16" rx="5" ${S}/><path d="M29 25h1M34 25h1" ${S}/></g><g class="a-hop3"><rect x="44" y="26" width="16" height="16" rx="5" ${S}/><path d="M49 33h1M54 33h1" ${S}/></g><path d="M12 50h40" ${S} opacity=".4"/>`,
+  workflow: `<rect x="4" y="24" width="14" height="14" rx="3" ${S}/><rect x="25" y="24" width="14" height="14" rx="3" ${S}/><rect x="46" y="24" width="14" height="14" rx="3" ${S}/><path class="a-dash" d="M18 31h7M39 31h7" ${S}/>`,
+  background: `<path d="M20 8h24M20 56h24M22 8c0 14 20 14 20 24S22 42 22 56M42 8c0 14-20 14-20 24s20 10 20 24" ${S}/><path class="a-fade" d="M28 50h8" ${S}/>`,
+  worktree: `<path d="M6 20h14l4 4h18v26H6z" ${S}/><g class="a-slide"><path d="M22 14h14l4 4h18v26H22" ${S} opacity=".6"/></g>`,
+  connect: `<path d="M38 20v-8M48 20v-8" ${S}/><rect x="32" y="20" width="22" height="16" rx="4" ${S}/><path d="M43 36v8c0 6-6 10-12 10" ${S}/><g class="a-write"><rect x="6" y="40" width="16" height="12" rx="3" ${S}/></g>`,
+  browser: `<rect x="6" y="10" width="52" height="40" rx="5" ${S}/><path d="M6 20h52" ${S}/><circle cx="12" cy="15" r="1.6" fill="currentColor"/><g class="a-slide"><path d="M24 28l12 10-6 1 3 7-3 1-3-7-4 4z" fill="currentColor"/></g>`,
+  computer: `<rect x="6" y="8" width="52" height="34" rx="4" ${S}/><path d="M24 54h16M32 42v12" ${S}/><g class="a-slide"><path d="M20 18l10 8-5 1 2 6-3 1-2-6-4 3z" fill="currentColor"/></g>`,
+  artifact: `${page}<rect class="a-grow" x="18" y="30" width="5" height="16" fill="currentColor"/><rect class="a-grow" style="animation-delay:.3s" x="26" y="24" width="5" height="22" fill="currentColor"/><rect class="a-grow" style="animation-delay:.6s" x="34" y="34" width="5" height="12" fill="currentColor"/><path d="M19 16h16" ${S}/>`,
+  diagram: `<rect x="22" y="4" width="20" height="12" rx="3" ${S}/><rect x="6" y="44" width="20" height="12" rx="3" ${S}/><rect x="38" y="44" width="20" height="12" rx="3" ${S}/><path class="a-dash" d="M32 16v12M16 44V30h32v14" ${S}/>`,
+  memory: `<path d="M12 8h34a6 6 0 0 1 6 6v42H18a6 6 0 0 1-6-6z" ${S}/><path d="M12 50a6 6 0 0 1 6-6h34" ${S}/><path class="a-bob" d="M38 8v18l5-4 5 4V8" ${S}/>`,
+  skill: `<rect x="8" y="12" width="48" height="40" rx="5" ${S}/><path d="M16 38h20M16 45h14" ${S}/><path class="a-spin" d="M44 18l3 6 6 1-4 4 1 6-6-3-6 3 1-6-4-4 6-1z" fill="currentColor"/>`,
+  mod: `<g class="a-write"><path d="M10 18h12a5 5 0 1 1 10 0h12v12a5 5 0 1 0 0 10v12H32a5 5 0 1 1-10 0H10z" ${S}/></g>`,
+  hooks: `<g class="a-spin"><circle cx="32" cy="32" r="9" ${S}/><path d="M32 8v8M32 48v8M8 32h8M48 32h8M15 15l6 6M43 43l6 6M15 49l6-6M43 21l6-6" ${S}/></g>`,
+  theme: `<path d="M32 8a24 24 0 1 0 0 48c4 0 4-5 1-8-2-2 0-6 4-6h7a12 12 0 0 0 12-12C56 18 45 8 32 8z" ${S}/><circle class="a-pulse" cx="20" cy="28" r="3.5" fill="currentColor"/><circle class="a-pulse" style="animation-delay:.4s" cx="30" cy="18" r="3.5" fill="currentColor"/><circle class="a-pulse" style="animation-delay:.8s" cx="42" cy="20" r="3.5" fill="currentColor"/>`,
+  schedule: `<circle cx="32" cy="34" r="22" ${S}/><g class="a-spin" style="transform-origin:32px 34px"><path d="M32 34V20" ${S}/></g><path d="M32 34l8 6" ${S}/><path d="M24 6h16" ${S}/>`,
+  script: `<rect x="8" y="10" width="48" height="44" rx="5" ${S}/><path d="M18 24l6 6-6 6M28 38h12" ${S}/><path class="a-fade" d="M44 18h4" ${S}/>`,
+  safe: `<path class="a-pulse" d="M32 6l20 8v14c0 14-9 24-20 30C21 52 12 42 12 28V14z" ${S}/><path d="M23 32l6 6 12-12" ${S}/>`,
+  review: `<path d="M8 12h28M8 22h22M8 32h26" ${S} opacity=".5"/><g class="a-slide"><circle cx="36" cy="36" r="12" ${S}/><path d="M30 36l4 4 8-8" ${S}/><path d="M45 45l9 9" ${S}/></g>`,
+  undo: `<path class="a-swing" d="M20 18H10V8" ${S}/><path d="M10 18a22 22 0 1 1 2 24" ${S}/>`,
+  compact: `<g class="a-grow"><rect x="10" y="8" width="44" height="10" rx="3" ${S}/><rect x="10" y="22" width="44" height="10" rx="3" ${S}/><rect x="10" y="36" width="44" height="10" rx="3" ${S}/></g><path d="M22 54h20" ${S}/>`,
+  apps: `<rect x="4" y="10" width="34" height="26" rx="4" ${S}/><path d="M4 18h34" ${S}/><g class="a-bob"><rect x="24" y="26" width="36" height="28" rx="4" ${S}/><path d="M24 34h36M31 42l4 4-4 4" ${S}/></g>`,
+  phone: `<rect x="20" y="4" width="24" height="56" rx="6" ${S}/><path d="M29 52h6" ${S}/><path class="a-fade" d="M8 22c-4 6-4 14 0 20M56 22c4 6 4 14 0 20" ${S}/>`,
+  remote: `<rect x="4" y="14" width="30" height="22" rx="3" ${S}/><path d="M0 42h38" ${S}/><rect x="46" y="20" width="14" height="26" rx="3" ${S}/><path class="a-dash" d="M34 26h12" ${S}/>`,
+  slack: `<path d="M6 10h32v20H18l-8 8v-8H6z" ${S}/><g class="a-bob"><path d="M26 32h32v18h-4v8l-8-8H26z" ${S}/><path d="M34 41h16" ${S}/></g>`,
+  cloud: `<g class="a-bob"><path d="M18 46h30a10 10 0 0 0 0-20 14 14 0 0 0-27-3A10 10 0 0 0 18 46z" ${S}/></g><path class="a-fade" d="M24 54h16" ${S}/>`,
+  agentfile: `${page}<g class="a-hop1"><rect x="30" y="34" width="22" height="20" rx="6" ${S}/><path d="M37 43h1M45 43h1M41 34v-5" ${S}/></g>`,
+  team: `<circle class="a-pulse" cx="32" cy="14" r="7" ${S}/><circle cx="12" cy="48" r="7" ${S}/><circle cx="52" cy="48" r="7" ${S}/><path class="a-dash" d="M27 20L16 42M37 20l11 22M19 48h26" ${S}/>`,
+  goal: `<circle cx="32" cy="32" r="22" ${S}/><circle cx="32" cy="32" r="13" ${S}/><circle class="a-pulse" cx="32" cy="32" r="4" fill="currentColor"/>`,
+  model: `<rect x="16" y="16" width="32" height="32" rx="5" ${S}/><path d="M24 8v8M32 8v8M40 8v8M24 48v8M32 48v8M40 48v8M8 24h8M8 32h8M8 40h8M48 24h8M48 32h8M48 40h8" ${S}/><rect class="a-pulse" x="26" y="26" width="12" height="12" rx="2" fill="currentColor"/>`,
+  mention: `<g class="a-bob"><circle cx="32" cy="32" r="9" ${S}/><path d="M41 32v4a6 6 0 0 0 12 0v-4a21 21 0 1 0-8 16" ${S}/></g>`,
+  voice: `<rect x="24" y="6" width="16" height="30" rx="8" ${S}/><path d="M14 30a18 18 0 0 0 36 0M32 48v10M24 58h16" ${S}/><path class="a-fade" d="M6 24v12M58 24v12" ${S}/>`,
+  resume: `<path d="M8 12h48v32H28l-12 10V44H8z" ${S}/><path class="a-pulse" d="M28 21l12 7-12 7z" fill="currentColor"/>`,
+  init: `${page}${lines}<path class="a-spin" d="M50 6l2 5 5 2-5 2-2 5-2-5-5-2 5-2z" fill="currentColor"/>`,
+  folder: `<path d="M6 16h18l5 6h29v30H6z" ${S}/><path class="a-pulse" d="M32 30v14M25 37h14" ${S}/>`,
+  style: `<path d="M8 10h48v32H30l-12 10V42H8z" ${S}/><path d="M18 22h20M18 30h12" ${S}/><circle class="a-pulse" cx="46" cy="26" r="4" fill="currentColor"/>`,
+  lsp: `<path d="M22 12l-12 20 12 20M42 12l12 20-12 20" ${S}/><path class="a-blink" d="M28 32h8" ${S}/>`,
+  sandbox: `<path d="M8 50h48" ${S}/><path d="M12 50V24M22 50V24M32 50V24M42 50V24M52 50V24M8 30h48M8 42h48" ${S} opacity=".7"/><rect class="a-bob" x="26" y="8" width="12" height="10" rx="2" fill="currentColor"/>`,
+  usage: `<rect x="6" y="20" width="52" height="20" rx="10" ${S}/><rect class="a-fade" x="10" y="24" width="30" height="12" rx="6" fill="currentColor"/>`,
+  doctor: `<path d="M32 54C14 42 6 32 6 22a12 12 0 0 1 26-6 12 12 0 0 1 26 6c0 10-8 20-26 32z" ${S}/><path class="a-draw" d="M12 32h10l4-8 6 16 4-8h16" ${S}/>`,
+  export: `${page}<g class="a-write"><path d="M30 34h22M44 26l8 8-8 8" ${S}/></g>`,
+  ci: `<g class="a-spin"><circle cx="24" cy="28" r="8" ${S}/><path d="M24 12v6M24 38v6M8 28h6M34 28h6" ${S}/></g><circle cx="46" cy="46" r="12" ${S}/><path d="M40 46l4 4 8-8" ${S}/>`,
+  sdk: `<rect x="8" y="34" width="20" height="20" rx="3" ${S}/><rect x="36" y="34" width="20" height="20" rx="3" ${S}/><g class="a-hop2"><rect x="22" y="8" width="20" height="20" rx="3" ${S}/></g>`,
+}
+
+// ---------- abilities ----------
+const ABILITIES = [
+  ['where', 'apps', 'Desktop app and code editors', 'Use Claude in its own desktop app, or right inside the VS Code and JetBrains code editors.', '/ide', ''],
+  ['where', 'phone', 'On the web and your phone', 'Start a job in the cloud from a browser or the mobile app, then pull it into your terminal.', '/teleport', ''],
+  ['where', 'remote', 'Remote Control', 'Drive a Claude session on your computer from another device.', '/remote-control', ''],
+  ['where', 'slack', 'In Slack', 'Ask Claude for help from a Slack conversation.', 'Look at this thread and suggest a fix.', ''],
+  ['where', 'cloud', 'Through a company cloud', 'Companies can run Claude through Amazon Bedrock, Google Vertex AI or Microsoft Foundry.', '', ''],
+  ['look', 'read', 'Read files', 'Claude opens your files and reads them, like reading a book really fast.', 'Read todo.txt and tell me what is left to do.', 'Name the file, and it finds things faster.'],
+  ['look', 'search', 'Find things in code', 'It hunts for a word across hundreds of files in a blink.', 'Where do we use the word “score”?', 'Give a clue word, like a name or an error.'],
+  ['look', 'see', 'See pictures and PDFs', 'Show it a screenshot, a photo or a PDF, and it can look at it. Paste a picture straight in with Alt+V on Windows.', 'Here is a screenshot of the error. What went wrong?', 'One picture of the problem saves lots of words.'],
+  ['look', 'web', 'Search the web', 'It looks things up online and reads web pages for you.', 'Find the newest version of three.js and what changed.', 'Ask it to show where the facts came from.'],
+  ['look', 'explain', 'Explain things', 'Ask “how does this work?” and it explains in small, simple steps.', 'Explain this file like I am 10.', 'Say how simple you want the answer.'],
+  ['look', 'mention', 'Point at a file with @', 'Type @ and a file name to show Claude exactly which file you mean.', '@src/game.js why is this so slow?', 'Pointing is faster than describing.'],
+  ['look', 'voice', 'Talk instead of type', 'Turn on voice, hold Space and speak. Claude writes down what you say.', '/voice', ''],
+  ['build', 'write', 'Write and change files', 'It makes new files, or fixes lines inside old ones.', 'Add a Reset button under the score.', 'Ask to see what changed before you keep it.'],
+  ['build', 'run', 'Run commands', 'It types commands in the terminal for you: run tests, install things, build apps.', 'Run the tests and fix anything that fails.', 'It asks you first before anything risky.'],
+  ['build', 'office', 'Word, Excel, slides and PDF', 'It can make and read Word documents, spreadsheets, slide decks and PDFs.', 'Turn this list into a spreadsheet with totals.', 'Say who the file is for, like “a report for my class”.'],
+  ['build', 'notebook', 'Notebooks', 'It works in Jupyter notebooks, one cell at a time.', 'Add a cell that draws a chart of the temperatures.', ''],
+  ['build', 'git', 'Git and GitHub', 'It saves versions of your work, makes branches and opens pull requests.', 'Commit my changes with a clear message.', 'It only pushes or shares your code when you ask.'],
+  ['plan', 'plan', 'Plan mode', 'For big jobs, Claude writes a plan first and waits for your OK.', 'Plan how to add a high-score table. Do not code yet.', 'Read the plan. You can change it before work starts.'],
+  ['plan', 'ask', 'Asks you questions', 'When something is unclear, it asks you with simple choices.', 'Ask me anything you need before you start.', 'Your answers beat its guesses.'],
+  ['plan', 'steps', 'Step checklists', 'It shows a list of steps and ticks them off as it goes.', 'Make a step list for this and keep it updated.', ''],
+  ['plan', 'effort', 'Thinking power', 'You can let it think harder on tricky problems, or go quick on easy ones.', '/effort high', 'Hard puzzle? More thinking. Easy fix? Less.'],
+  ['plan', 'goal', 'Keep going until done', 'Give it a goal and it keeps working, turn after turn, until the goal is reached.', '/goal all the tests pass', 'Pick a goal it can check, like “tests pass”.'],
+  ['plan', 'model', 'Choose the brain', 'Pick which Claude model to use, switch on fast mode, or ask an advisor model for a second opinion.', '/model', 'Bigger models think deeper. Smaller ones answer faster.'],
+  ['team', 'helpers', 'Helper agents', 'Claude sends little helpers to explore or plan at the same time. They report back to it.', 'Send three helpers to look at the login, the menu and the tests.', 'Great for big searches. Small jobs are faster alone.'],
+  ['team', 'workflow', 'Workflows', 'For huge jobs, it runs a whole team of helpers in order, like an assembly line.', 'Use a workflow to review every file in this folder.', 'It uses lots of power, so save it for big jobs.'],
+  ['team', 'background', 'Background jobs', 'Long jobs run in the background while you keep chatting. It tells you when they finish.', 'Build the app in the background and tell me when it is done.', ''],
+  ['team', 'worktree', 'A safe copy to try ideas', 'It can make a separate copy of your project (a worktree) to test an idea without touching the real one.', 'Try this idea in a worktree first.', ''],
+  ['team', 'agentfile', 'Make your own helper', 'Write a short file in .claude/agents/ to create a specialist helper, like a code reviewer that may only read files. It works in its own room and sends back a summary.', 'Make me a code-reviewer helper that can only read files.', 'Give it a short, clear description of when to use it.'],
+  ['team', 'team', 'Agent teams', 'Several Claude sessions can work together as a team and send each other messages.', 'Set up a team: one helper builds, one tests.', 'A team uses more power than one Claude.'],
+  ['connect', 'connect', 'Connectors', 'Plug Claude into apps like Gmail, Calendar, Notion or Figma so it can help there too.', 'What is on my calendar tomorrow?', 'It asks before sending or changing anything outside.'],
+  ['connect', 'browser', 'Use a web browser', 'It opens web pages, clicks buttons and fills in forms in a browser.', 'Open my site and check the sign-up button works.', 'Watch it the first few times.'],
+  ['connect', 'computer', 'Use the computer', 'With your permission, it can see your screen and click in desktop apps.', 'Open Notes and make a shopping list.', 'You can stop it any time.'],
+  ['create', 'artifact', 'Web pages and slides', 'It builds a page, a dashboard, a slide deck or a document you can open and share by link.', 'Make a page that explains volcanoes with pictures.', 'Pages start private. You choose who sees them.'],
+  ['create', 'diagram', 'Diagrams and charts', 'It draws flowcharts and charts from your ideas or your numbers.', 'Draw a flowchart of how my game starts.', ''],
+  ['remember', 'memory', 'Memory', 'It remembers your rules and facts between chats: in a note file called CLAUDE.md (or AGENTS.md), in rule files under .claude/rules/, and in its own memory notes.', 'Remember: always use tabs, never spaces.', 'Keep CLAUDE.md short. It is advice, not a lock.'],
+  ['remember', 'skill', 'Skills and slash commands', 'Skills are recipe cards with extra know-how. Type / to see them and use one.', '/code-review', 'Make your own skill for jobs you repeat.'],
+  ['remember', 'mod', 'Plugins and mods', 'Add plugins, or even change how Claude’s own screen looks, like a side panel that shows its work.', 'Make a panel that shows the steps you are working on.', ''],
+  ['remember', 'hooks', 'Hooks and settings', 'Set rules like “whenever you edit a file, tidy it up”, and say what it may do without asking.', 'After every edit, run the formatter.', 'Hooks run by themselves, so test each one once.'],
+  ['remember', 'theme', 'Your own style', 'Pick colors with /theme, build the bottom status line with /statusline, and set things like vim keys or the fullscreen view in /config.', '/theme', ''],
+  ['remember', 'style', 'Answer styles', 'Output styles change how Claude talks to you, like a teacher who explains each step.', 'Switch to the learning output style.', ''],
+  ['remember', 'resume', 'Pick up an old chat', 'Come back to an earlier conversation and carry on where you stopped.', '/resume', ''],
+  ['remember', 'init', 'Start a notes file', 'Claude reads your project and writes a first CLAUDE.md for you.', '/init', 'Read it and fix anything it got wrong.'],
+  ['remember', 'folder', 'Work in more folders', 'Let Claude look at another folder too, not only the one you started in.', '/add-dir ../shared', ''],
+  ['remember', 'lsp', 'Smarter code reading', 'Code-intelligence plugins let Claude jump to where things are defined and spot errors, like a code editor does.', 'Install the TypeScript code-intelligence plugin.', ''],
+  ['automate', 'schedule', 'Loops and schedules', 'It repeats a job every few minutes with /loop, or runs it at a set time with scheduled tasks in the cloud (/schedule) or in the desktop app.', '/loop 10m check if the build passed', ''],
+  ['automate', 'script', 'Run in scripts', 'Other programs can call Claude with one command, claude -p, to do a job and print the answer.', 'claude -p "summarize today\'s log"', ''],
+  ['automate', 'ci', 'Reviews in GitHub and GitLab', 'Claude can review pull requests or fix issues by itself in GitHub Actions or GitLab pipelines.', 'Set up Claude to review every new pull request.', 'Start with reviews before letting it change code.'],
+  ['automate', 'sdk', 'Build your own agent', 'Programmers can build their own agents on the same engine with the Agent SDK, in TypeScript or Python.', 'Help me start an Agent SDK project in Python.', ''],
+  ['safe', 'safe', 'Permission modes', 'You choose how much it may do alone: Manual (asks every time), Edit automatically, Plan, Auto, or Bypass permissions (only inside a safe sandbox).', 'Press Shift+Tab to switch modes.', 'Start careful. Give more freedom as you trust it.'],
+  ['safe', 'sandbox', 'Sandbox', 'Commands can run inside a fenced-off play area, so they cannot touch the rest of your computer.', '/sandbox', ''],
+  ['safe', 'review', 'Code and security review', 'It checks code for bugs and safety holes, like a careful teacher with a red pen. /code-review ultra runs a deep review in the cloud.', '/code-review', ''],
+  ['safe', 'undo', 'Undo', 'Made a mistake? Rewind to before the change.', '/rewind', 'Undo works for its file edits, not for messages it already sent.'],
+  ['safe', 'compact', 'Long chats', 'When a chat gets very long, Claude squeezes the old parts into a short summary so it can keep going.', '/compact', 'New topic? /clear gives you a fresh start.'],
+  ['safe', 'usage', 'Usage and cost', 'See how much of your plan or budget you have used so far.', '/usage', ''],
+  ['safe', 'doctor', 'Health check', 'Checks that Claude Code is installed and set up correctly, and tells you what to fix.', '/doctor', ''],
+  ['safe', 'export', 'Save a chat', 'Save the conversation to a file so you can keep it or share it.', '/export', ''],
+].map(([group, icon, title, what, say, tip]) => ({ group, icon, title, what, say, tip }))
+
+// ---------- "What really happens": three plain steps and a real example per ability ----------
+const DETAILS = {}
+const D = (id, label, code, ...how) => { DETAILS[id] = { label, code, how } }
+D('apps', 'Example in the terminal', `> /ide
+  Connected to Visual Studio Code`,
+  "Install the desktop app, or the Claude Code extension for VS Code or a JetBrains editor.",
+  "Claude can see the file you have open and the lines you selected.",
+  "Its changes show up side by side, old and new, so you can accept or reject them.")
+D('phone', 'Example', `(on claude.ai/code) Fix the failing test in my repo
+...later, on your computer:
+> /teleport`,
+  "Open Claude Code on the web or in the Claude mobile app.",
+  "The job runs on a computer in the cloud, so your own laptop can be off.",
+  "Later, /teleport brings that cloud session into your terminal.")
+D('remote', 'Example', `> /remote-control
+  Open this session from your phone to keep chatting`,
+  "Turn on Remote Control in a session on your computer.",
+  "Open that same session from another device, like your phone.",
+  "What you type there runs on your computer, with the same permissions.")
+D('slack', 'Example in a Slack thread', `@Claude why did last night's build fail?`,
+  "Your team adds Claude to Slack.",
+  "You mention Claude in a thread and ask for help.",
+  "Claude reads the thread and answers there, or starts a coding job.")
+D('cloud', 'Example: start Claude through Amazon Bedrock', `set CLAUDE_CODE_USE_BEDROCK=1
+claude`,
+  "A company sets Claude Code to use its own cloud account.",
+  "Your requests reach Claude through that cloud: Bedrock, Vertex AI or Foundry.",
+  "Everything else works the same for you.")
+D('read', 'Example', `> Read todo.txt and tell me what is left
+  ● Read todo.txt (14 lines)
+  Three things are left: the menu, the sound, the high scores.`,
+  "Claude uses its Read tool to open the file.",
+  "The text goes into its working memory for this chat (called the context).",
+  "It answers from what it just read, and can point to line numbers.")
+D('search', 'Example', `> Where do we use the word "score"?
+  ● Search "score" (3 files)
+    src/game.js:12   src/menu.js:40   src/save.js:7`,
+  "Grep looks inside files for a word or pattern.",
+  "Glob finds files by their name, like every file ending in .test.js.",
+  "Then it only reads the files that matched, which is fast.")
+D('see', 'Example', `> [Image #1] why is this button cut off?`,
+  "You paste a picture (Alt+V on Windows), drag it in, or give the path to an image or PDF.",
+  "Claude looks at it the same way it reads text.",
+  "It can read words in screenshots and describe charts, photos and designs.")
+D('web', 'Example', `> Find the newest version of three.js
+  ● Web search "three.js latest release"
+  ● Fetch github.com/mrdoob/three.js/releases`,
+  "Web search looks up pages on the internet.",
+  "Web fetch opens one page and reads it.",
+  "It tells you which pages the facts came from.")
+D('explain', 'Example', `> Explain game.js like I am 10
+  This file is the game's heartbeat. Sixty times a second
+  it moves everything a tiny bit, then draws the picture.`,
+  "Claude reads the code first.",
+  "It works out what each part does and how the parts connect.",
+  "It explains in the style you ask for: short, simple, or step by step.")
+D('mention', 'Example', `> @src/game.js why is the jump so slow?`,
+  "Type @ and start a file name; a list pops up.",
+  "Pick the file, and it is attached to your message.",
+  "Claude reads it straight away, with no searching.")
+D('voice', 'Example', `> /voice
+  (hold Space and talk)`,
+  "Turn voice on with /voice.",
+  "Hold Space while you talk.",
+  "Your words are typed into the prompt, so you can check them before sending.")
+D('write', 'Example: an edit, shown as a diff', `● Edit src/menu.js
+  - <button>Start</button>
+  + <button>Start</button>
+  + <button id="reset">Reset</button>`,
+  "Edit swaps exact lines in a file; Write makes a whole new file.",
+  "You see a diff: lines marked - go out, lines marked + come in.",
+  "Depending on your permission mode, it asks before saving each change.")
+D('run', 'Example', `● Run npm test
+  ✗ 1 failed: save.test.js
+● Edit src/save.js
+● Run npm test
+  ✓ 12 passed`,
+  "Claude writes a command for the terminal, like npm test.",
+  "Your permission mode decides whether it asks you first.",
+  "It reads what the command printed and decides what to do next.")
+D('office', 'Example', `> Turn scores.csv into a spreadsheet with totals
+  ● Load skill xlsx
+  ● Write scores.xlsx ✓`,
+  "Office skills teach Claude how each kind of file is built.",
+  "It writes a small program that creates the .docx, .xlsx, .pptx or .pdf file.",
+  "You get a real file that opens in Word, Excel or PowerPoint.")
+D('notebook', 'Example', `● Edit notebook cell 4
+  plt.plot(days, temperatures)`,
+  "Claude reads a Jupyter notebook (.ipynb) cell by cell.",
+  "It adds or changes cells with its notebook tool.",
+  "You run the cells to see the results.")
+D('git', 'Example', `● Run git add -A
+● Run git commit -m "Add Reset button"
+  [main 3f2a1c9] Add Reset button`,
+  "Claude runs git commands for you: status, diff, commit, branch.",
+  "It writes a clear commit message from what changed.",
+  "With the GitHub CLI (gh) it can open pull requests, but only when you ask.")
+D('plan', 'Example plan', `Plan: High-score table
+  1. Save the top 5 scores
+  2. Show them on the menu
+  3. Add tests
+  [ Approve ]  [ Keep planning ]`,
+  "Press Shift+Tab until you see Plan mode, or ask for a plan.",
+  "Claude reads and explores, but changes nothing.",
+  "It shows you the plan, and nothing happens until you approve it.")
+D('ask', 'Example', `Which color should the button be?
+  1. Orange (Recommended)
+  2. Blue
+  3. Something else...`,
+  "When there are real choices, Claude stops and asks.",
+  "You get 2 to 4 options to tap, or you type your own answer.",
+  "It carries on with your choice instead of guessing.")
+D('steps', 'Example', `☑ Read the save code
+☐ Fix the Save button
+☐ Run the tests`,
+  "For a job with several steps, Claude writes a checklist.",
+  "It ticks items off as it finishes them.",
+  "You can always see what is done and what comes next.")
+D('effort', 'Example', `> /effort high`,
+  "Effort is how long Claude thinks before it answers.",
+  "Higher effort is better for hard problems, but slower and uses more of your plan.",
+  "/effort sets it, from low up to max.")
+D('goal', 'Example', `> /goal all the tests pass
+  ● Run npm test   ✗ 2 failed
+  ● Edit src/save.js
+  ● Run npm test   ✓ goal met`,
+  "You set a goal that can be checked, like all the tests passing.",
+  "Claude keeps taking turns without you typing anything.",
+  "It stops when the goal is met, or when you stop it.")
+D('model', 'Example', `> /model
+  ○ Opus
+  ● Sonnet
+  ○ Haiku`,
+  "/model lists the Claude models you can use.",
+  "Bigger models think deeper; smaller ones are quicker and cheaper.",
+  "/fast speeds up answers, and /advisor adds a second-opinion model.")
+D('helpers', 'Example', `● Agent (Explore): find where scores are saved
+● Agent (Explore): check the menu tests
+  (both work at the same time)`,
+  "Claude starts a helper agent and gives it one task.",
+  "The helper works in its own separate chat and does not see yours.",
+  "It sends back only a short summary, so your chat stays tidy.")
+D('workflow', 'Example', `> use a workflow to review every file in src/`,
+  "A workflow is a little script that runs many helpers, one after another or side by side.",
+  "One step's results feed the next, like an assembly line.",
+  "It only runs when you ask, because it uses a lot of power.")
+D('background', 'Example', `● Run npm run build (in the background)
+  ...you keep chatting...
+  ✓ Build finished in 2m 10s`,
+  "Long commands or helpers can run in the background.",
+  "You keep chatting while they work.",
+  "When one finishes, Claude gets a notice and tells you.")
+D('worktree', 'Example', `● Create worktree ../game-idea (branch: try-new-menu)`,
+  "A git worktree is a second copy of your project on its own branch.",
+  "Claude works there, so your real files stay untouched.",
+  "Like the idea? Merge it back. Don't like it? Delete the copy.")
+D('agentfile', 'Example file: .claude/agents/code-reviewer.md', `---
+name: code-reviewer
+description: Reviews code for bugs. Use after code changes.
+tools: Read, Glob, Grep
+---
+You are a careful code reviewer.
+Give short, specific feedback.`,
+  "You write a small text file in .claude/agents/.",
+  "The top part names the helper, says when to use it, and which tools it may use.",
+  "Claude hands matching jobs to it; it works in its own room and reports back.")
+D('team', 'Example message between teammates', `builder → tester: The new menu is ready, please test it.`,
+  "Several Claude sessions join one team.",
+  "They send each other messages and share out the work.",
+  "One can build while another tests.")
+D('connect', 'Example', `> /mcp
+  ● gmail      connected
+  ● calendar   connected`,
+  "A connector (an MCP server) gives Claude new tools, like 'search my email'.",
+  "You add it once and sign in.",
+  "Claude asks before it sends or changes anything in that app.")
+D('browser', 'Example', `● Open localhost:3000
+● Click "Sign up"
+● Read page: "Thanks for joining!" ✓`,
+  "Claude drives a browser with tools like open, click, type and read page.",
+  "It can use your own Chrome (Claude in Chrome) or the browser inside the Claude app.",
+  "It asks before it visits new sites.")
+D('computer', 'Example', `● Take screenshot
+● Click Notes
+● Type "milk, eggs, bread"`,
+  "Computer use takes screenshots of your screen.",
+  "It moves the mouse and types, like a person would.",
+  "You allow each app first, and you can stop it any time.")
+D('artifact', 'Example', `● Write volcano.html
+● Publish page → claude.ai/artifact/...`,
+  "Claude writes a web page with pictures, words and code.",
+  "It publishes it as a private link.",
+  "You decide whether to share it.")
+D('diagram', 'Example: a Mermaid flowchart', `flowchart LR
+  Start --> Menu
+  Menu --> Play
+  Play --> GameOver`,
+  "Claude turns your idea into a small drawing language like Mermaid.",
+  "The page draws it as boxes and arrows.",
+  "For numbers, it makes charts instead.")
+D('memory', 'Example file: CLAUDE.md', `# Project notes
+- Build: npm run build
+- Run npm test before committing
+- Use 2-space indentation`,
+  "CLAUDE.md is read at the start of every chat, like house rules on the wall.",
+  "Rule files in .claude/rules/ can apply to some folders only.",
+  "Auto memory is notes Claude writes for itself from your corrections.")
+D('skill', 'Example file: .claude/skills/summarize-changes/SKILL.md', `---
+name: summarize-changes
+description: Summarizes uncommitted changes and flags risks.
+---
+Look at the output of: git diff HEAD
+Summarize it in 2 or 3 bullets, then list any risks.`,
+  "At the start, Claude sees only each skill's one-line description.",
+  "When your ask matches a description, it opens the full recipe (SKILL.md).",
+  "It follows those steps. You can also run a skill yourself by typing /its-name.")
+D('mod', 'Example', `> /plugin install code-review@claude-plugins-official`,
+  "A plugin is a bundle of skills, helpers, hooks or connectors that you install with /plugin.",
+  "A mod can even draw its own panels on Claude's screen.",
+  "Only install plugins you trust, because they can run code.")
+D('hooks', 'Example file: .claude/settings.json', `{
+  "hooks": {
+    "PostToolUse": [{
+      "matcher": "Edit|Write",
+      "hooks": [{ "type": "command", "command": "npx prettier --write ." }]
+    }]
+  }
+}`,
+  "A hook is a command that runs on an event, like 'after a file is edited'.",
+  "Claude Code runs it itself, so it always happens, unlike a rule in CLAUDE.md.",
+  "Settings also list what Claude may do without asking you.")
+D('theme', 'Example', `> /theme
+  ● Dark
+  ○ Light
+  ○ Dark (color-blind friendly)`,
+  "/theme picks the colors.",
+  "/statusline builds the info line under the prompt.",
+  "/config holds the other switches, like vim keys.")
+D('style', 'Example', `> /config
+  Output style: Learning`,
+  "An output style changes how Claude answers you.",
+  "A learning style explains more, and may ask you to write small parts yourself.",
+  "All the tools still work the same.")
+D('resume', 'Example', `> /resume
+  1. Fix the Save button   (2 hours ago)
+  2. Volcano page          (yesterday)`,
+  "Every chat is saved on your computer.",
+  "/resume shows a list of your past chats.",
+  "Pick one, and Claude has that whole chat again.")
+D('init', 'Example', `> /init
+  ● Read package.json
+  ● Write CLAUDE.md ✓`,
+  "Claude looks around your project: files, scripts and tests.",
+  "It writes a first CLAUDE.md with build commands and rules.",
+  "You read it and fix anything that is wrong.")
+D('folder', 'Example', `> /add-dir ../shared-assets`,
+  "Normally Claude works only in the folder where you started it.",
+  "/add-dir lets it read and edit another folder as well.",
+  "Your permission rules still apply in the new folder.")
+D('lsp', 'Example', `● Go to definition: saveGame → src/save.js:12`,
+  "A code-intelligence (LSP) plugin connects Claude to the same language engine your code editor uses.",
+  "Claude can jump to where a function is defined and find every place it is used.",
+  "It notices type errors right after an edit.")
+D('schedule', 'Example', `> /loop 10m check if the build passed`,
+  "/loop repeats a request on a timer while your session is open.",
+  "/schedule sets up a task that runs in the cloud at set times.",
+  "The desktop app can run scheduled tasks too.")
+D('script', 'Example in a terminal', `claude -p "summarize this log" < log.txt`,
+  "claude -p runs one job without opening the chat screen.",
+  "It prints the answer, so other programs can use it.",
+  "Good for small helper scripts.")
+D('ci', 'Example comment on a pull request', `@claude please review this`,
+  "You add Claude to your GitHub or GitLab project.",
+  "When a pull request opens, it reviews the changes and leaves comments.",
+  "You can also ask it, in a comment, to fix an issue.")
+D('sdk', 'Example in Python', `from claude_agent_sdk import query
+
+async for message in query(prompt="Summarize README.md"):
+    print(message)`,
+  "The Agent SDK gives programmers the same agent loop that Claude Code uses.",
+  "You choose its tools, instructions and limits.",
+  "It runs inside your own app, written in TypeScript or Python.")
+D('safe', 'What you see under the prompt', `⏵⏵ Edit automatically (shift+tab to cycle)`,
+  "Manual asks before edits and commands. Edit automatically saves file edits without asking.",
+  "Plan only plans. Auto lets a safety checker decide what needs your OK.",
+  "Bypass permissions skips every question, so use it only inside a sandbox.")
+D('sandbox', 'Example', `> /sandbox`,
+  "The sandbox walls commands off from most of your files and the internet.",
+  "Commands inside can only touch the folders and sites you allow.",
+  "So a bad command cannot harm the rest of your computer.")
+D('review', 'Example', `> /code-review
+  1. save.js:12  the score is never saved when it is 0`,
+  "Claude reads the changes you made, line by line.",
+  "It looks for bugs, missing checks and safety problems.",
+  "It reports the worst problems first, and changes nothing unless you ask.")
+D('undo', 'Example', `> /rewind
+  ↺ Back to before "Add Reset button"`,
+  "Before each edit, Claude Code saves a checkpoint of your files.",
+  "/rewind (or pressing Esc twice) goes back to a checkpoint.",
+  "It cannot undo things sent outside, like an email or a git push.")
+D('compact', 'Example', `> /compact
+  Summarized the earlier messages ✓`,
+  "Claude can only keep so much of a chat in mind at once (its context window).",
+  "/compact turns the old messages into a short summary.",
+  "/clear throws the chat away and starts fresh.")
+D('usage', 'Example', `> /usage`,
+  "/usage shows how much of your plan or budget you have used.",
+  "It also shows when your limits reset.",
+  "/cost and /stats open the same view.")
+D('doctor', 'Example', `> /doctor
+  ✓ Claude Code is up to date
+  ✓ Settings are valid`,
+  "/doctor checks your install, settings and updates.",
+  "It lists anything that is broken.",
+  "It tells you how to fix each problem.")
+D('export', 'Example', `> /export chat-notes.txt`,
+  "/export saves the conversation.",
+  "You can copy it to the clipboard or save it as a text file.",
+  "Handy for notes, or for showing a teacher what you did.")
+
+// ---------- connectors ----------
+const CONNECTORS = [
+  ['Atlassian', 'Jira and Confluence: work tickets and team pages.', 'ready'],
+  ['Canva', 'Make posters and slides from your designs.', 'ready'],
+  ['Claude Docs', 'Write documents together and share them.', 'ready'],
+  ['Figma', 'Read designs and turn them into real screens.', 'ready'],
+  ['Gmail', 'Find, read and draft emails.', 'ready'],
+  ['Google Calendar', 'See your day and plan events.', 'ready'],
+  ['Google Docs', 'Read and edit your documents.', 'ready'],
+  ['Google Drive', 'Find and open your files.', 'ready'],
+  ['Google Sheets', 'Read and fill in spreadsheets.', 'ready'],
+  ['Google Slides', 'Read and change slide decks.', 'ready'],
+  ['Linear', 'Track tasks and bugs for a team.', 'ready'],
+  ['Notion', 'Read and write your notes and wikis.', 'ready'],
+  ['World OS', 'Keep track of a tabletop game world.', 'ready'],
+  ['Microsoft 365', 'Outlook, Word, Excel and Teams.', 'signin'],
+  ['Slack', 'Read and send team chat messages.', 'signin'],
+  ['ClickUp', 'Manage task lists.', 'signin'],
+  ['monday.com', 'Run team boards and projects.', 'signin'],
+  ['Intercom', 'Answer questions from customers.', 'signin'],
+  ['DocuSign', 'Send papers to be signed.', 'signin'],
+  ['Egnyte', 'Find shared company files.', 'signin'],
+  ['Amplitude', 'See how people use an app (also an EU version).', 'signin'],
+  ['Fireflies', 'Read meeting notes and recordings.', 'signin'],
+  ['Pendo', 'Learn how people use a product.', 'signin'],
+  ['Similarweb', 'Compare how busy websites are.', 'signin'],
+  ['Box', 'Open files stored in Box.', 'trouble'],
+  ['Asana', 'Track team tasks.', 'trouble'],
+  ['Web search', 'Look things up on the internet.', 'builtin'],
+  ['Web page reader', 'Open one web page and read it.', 'builtin'],
+  ['Claude in Chrome', 'Drive your own Chrome browser.', 'builtin'],
+  ['Built-in browser', 'A browser pane inside the Claude app.', 'builtin'],
+  ['Computer use', 'See your screen and click desktop apps.', 'builtin'],
+].map(([name, use, status]) => ({ name, use, status }))
+const STATUS_TEXT = { ready: 'Ready', signin: 'Needs sign-in', trouble: 'Having trouble', builtin: 'Built in' }
+const BADGE_COLORS = ['var(--sky)', 'var(--coral)', 'var(--grape)', 'var(--mint)', 'var(--pink)', 'var(--teal)', 'var(--orange)', 'var(--leaf)', 'var(--sun)']
+
+// ---------- habits ----------
+const HABITS = [
+  ['Say exactly what you want', 'Fix it.', 'The Save button does nothing when I click it. Fix it and test it.'],
+  ['Show it the problem', 'It is broken.', 'Here is the error message and a screenshot of what I see.'],
+  ['Plan big jobs first', 'Build my whole game.', 'Plan my game first. Show me the steps before you write code.'],
+  ['One step at a time', 'Add login, music, ten levels and a shop.', 'First add the login. Then we will do the music.'],
+  ['Ask it to check its work', 'Write the code.', 'Write it, then run the tests to prove it works.'],
+  ['Write rules down once', 'Use tabs! (said again in every chat)', 'Add “always use tabs” to CLAUDE.md so you remember.'],
+  ['Send helpers for big searches', 'Read every file one by one.', 'Send helpers to search the code at the same time.'],
+  ['You stay in charge', 'Here is my password, log in for me.', 'Use the connector. Show me the email before you send it.'],
+  ['Fresh start for a new topic', 'One giant chat for everything.', '/clear, then start a new chat for the new topic.'],
+]
+
+// ---------- quiz ----------
+const QUIZ = [
+  ['Claude is not sure what you mean. What does it do?', ['Guesses and hopes', 'Asks you a question', 'Stops working'], 1, 'It asks you, because your answer beats its guess.'],
+  ['Which helps most with a big job?', ['Plan mode', 'Typing faster', 'Closing the chat'], 0, 'Plan mode writes the steps first, and you say OK.'],
+  ['What is the best way to report a bug?', ['“It is broken”', 'Paste the error message', 'Say nothing'], 1, 'The exact error is a big clue for Claude.'],
+  ['Where do rules go that Claude should always remember?', ['CLAUDE.md', 'Your desktop wallpaper', 'A sticky note on the screen'], 0, 'Claude reads CLAUDE.md at the start of every chat.'],
+  ['What lets Claude read your Gmail?', ['A new keyboard', 'A connector', 'The undo button'], 1, 'A connector is the plug between Claude and an app.'],
+  ['You do not like a change Claude made. What can you use?', ['/party', 'Restart the computer', '/rewind'], 2, '/rewind takes its file edits back.'],
+]
+
+// ---------- helpers ----------
+const $ = (s, el = document) => el.querySelector(s)
+const esc = t => String(t).replace(/[&<>"]/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[ch]))
+const groupOf = id => GROUPS.find(g => g.id === id)
+const svg = (inner, label) => `<svg viewBox="0 0 64 64" role="img" aria-label="${esc(label)}">${inner}</svg>`
+
+$('#pill-abilities').textContent = `${ABILITIES.length} abilities`
+$('#pill-connectors').textContent = `${CONNECTORS.length} connectors`
+
+// ---------- abilities: one grid of cards, color chips to filter, one "Show more" ----------
+let activeGroup = 'all'
+let isSectionOpen = false
+
+const cardHtml = a => {
+  const g = groupOf(a.group)
+  const d = DETAILS[a.icon]
+  return `<article class="card" style="--c:${g.c}">
+    <div class="icon">${svg(ICONS[a.icon], a.title)}</div>
+    <span class="group">${esc(g.name)}</span>
+    <h3>${esc(a.title)}</h3>
+    <p class="what">${esc(a.what)}</p>
+    ${a.say ? `<p class="say"><b>Try saying</b>${esc(a.say)}</p>` : ''}
+    ${a.tip ? `<p class="tip">${esc(a.tip)}</p>` : ''}
+    ${d ? `<button class="more-link" type="button" aria-expanded="false">Show more</button>
+    <div class="deep" hidden>
+      <p class="exlabel">What really happens</p>
+      <ol class="how">${d.how.map(s => `<li>${esc(s)}</li>`).join('')}</ol>
+      <p class="exlabel">${esc(d.label)}</p>
+      <pre class="ex"><code>${esc(d.code)}</code></pre>
+    </div>` : ''}
+  </article>`
+}
+
+const chips = $('#chips')
+chips.innerHTML = [{ id: 'all', name: 'All', c: 'var(--ink)' }, ...GROUPS]
+  .map(g => `<button class="chip" type="button" data-g="${g.id}" aria-pressed="${g.id === 'all'}"><span class="sw" style="background:${g.c}"></span>${esc(g.name)}</button>`)
+  .join('')
+chips.addEventListener('click', ev => {
+  const b = ev.target.closest('.chip')
+  if (!b) return
+  activeGroup = b.dataset.g
+  chips.querySelectorAll('.chip').forEach(c => c.setAttribute('aria-pressed', String(c === b)))
+  renderGrid()
+})
+
+// How many cards fit across one row of the grid right now.
+const rowSize = grid => getComputedStyle(grid).gridTemplateColumns.split(' ').filter(Boolean).length || 1
+
+// Closed: one row of cards. Open, or while searching: all of them.
+// The one button says what tapping it will do.
+function fitGrid() {
+  const grid = $('#grid')
+  const cards = [...grid.querySelectorAll('.card')]
+  const isSearching = $('#q').value.trim() !== ''
+  const showAll = isSearching || isSectionOpen
+  const cols = rowSize(grid)
+  cards.forEach((c, i) => { c.hidden = !showAll && i >= cols })
+  const hiddenCount = showAll ? 0 : Math.max(0, cards.length - cols)
+  const btn = $('#section-more')
+  btn.hidden = isSearching || (!isSectionOpen && hiddenCount === 0)
+  btn.textContent = isSectionOpen ? 'Show less' : `Show more (${hiddenCount} more)`
+  btn.setAttribute('aria-expanded', String(isSectionOpen))
+}
+
+$('#section-more').addEventListener('click', () => {
+  isSectionOpen = !isSectionOpen
+  fitGrid()
+  if (!isSectionOpen) $('#t-abilities').scrollIntoView({ block: 'start' })
+})
+
+// A card's "Show more": what really happens, with the example.
+$('#grid').addEventListener('click', ev => {
+  const link = ev.target.closest('.more-link')
+  if (!link) return
+  const deep = link.nextElementSibling
+  deep.hidden = !deep.hidden
+  link.textContent = deep.hidden ? 'Show more' : 'Show less'
+  link.setAttribute('aria-expanded', String(!deep.hidden))
+})
+let fitFrame = 0
+addEventListener('resize', () => { cancelAnimationFrame(fitFrame); fitFrame = requestAnimationFrame(fitGrid) })
+$('#q').addEventListener('input', renderGrid)
+
+function renderGrid() {
+  const q = $('#q').value.trim().toLowerCase()
+  // Search the card and its "What really happens" text too.
+  const matches = a => {
+    if (!q) return true
+    const d = DETAILS[a.icon]
+    const text = [a.title, a.what, a.say, a.tip, groupOf(a.group).name, d ? d.how.join(' ') + ' ' + d.code : '']
+    return text.join(' ').toLowerCase().includes(q)
+  }
+  const shown = ABILITIES.filter(a => (activeGroup === 'all' || a.group === activeGroup) && matches(a))
+  // A search for an app name also points at the connectors wall.
+  const plugHits = q ? CONNECTORS.filter(c => (c.name + ' ' + c.use).toLowerCase().includes(q)).length : 0
+  $('#count').textContent = `${shown.length} of ${ABILITIES.length} abilities` +
+    (plugHits ? ` · ${plugHits} matching connector${plugHits === 1 ? '' : 's'} below` : '')
+  $('#grid').innerHTML = shown.map(cardHtml).join('')
+  $('#none').hidden = shown.length > 0
+  $('#none').textContent = `Nothing matches “${q}”. Try another word, like “file”, “test” or “page”.`
+  fitGrid()
+  // Highlight matching connectors on the wall too.
+  document.querySelectorAll('.plug').forEach(p => {
+    p.style.borderColor = q && p.textContent.toLowerCase().includes(q) ? 'var(--mint)' : ''
+  })
+  fitWall()
+}
+
+// ---------- connectors wall ----------
+$('#wall').innerHTML = CONNECTORS.map((c, i) => `
+  <div class="plug">
+    <span class="badge" style="background:${BADGE_COLORS[i % BADGE_COLORS.length]}" aria-hidden="true">${esc(c.name.replace(/[^A-Za-z0-9]/g, '').slice(0, 2))}</span>
+    <b>${esc(c.name)}</b>
+    <span class="use">${esc(c.use)}</span>
+    <span class="status ${c.status}">${STATUS_TEXT[c.status]}</span>
+  </div>`).join('')
+
+// Connectors: one row to start; one "Show more" opens the whole wall.
+// While searching, every tile shows so the matching ones are never hidden.
+let isWallOpen = false
+function fitWall() {
+  const wall = $('#wall')
+  const tiles = [...wall.children]
+  const isSearching = $('#q').value.trim() !== ''
+  const showAll = isSearching || isWallOpen
+  const cols = rowSize(wall)
+  tiles.forEach((t, i) => { t.hidden = !showAll && i >= cols })
+  const hiddenCount = showAll ? 0 : Math.max(0, tiles.length - cols)
+  const btn = $('#wall-more')
+  btn.hidden = isSearching || (!isWallOpen && hiddenCount === 0)
+  btn.textContent = isWallOpen ? 'Show less' : `Show more (${hiddenCount} more connectors)`
+  btn.setAttribute('aria-expanded', String(isWallOpen))
+}
+$('#wall-more').addEventListener('click', () => {
+  isWallOpen = !isWallOpen
+  fitWall()
+  if (!isWallOpen) $('#t-conn').scrollIntoView({ block: 'start' })
+})
+let wallFrame = 0
+addEventListener('resize', () => { cancelAnimationFrame(wallFrame); wallFrame = requestAnimationFrame(fitWall) })
+
+// ---------- tables: search, color chips to filter, a few rows to start and one "Show more" ----------
+const ROWS_CLOSED = 8
+function tableSection(o) {
+  let group = 'all'
+  let isOpen = false
+  const input = $(o.input), body = $(o.body), more = $(o.more), chipBox = $(o.chips)
+  chipBox.innerHTML = [{ id: 'all', name: 'All', c: 'var(--ink)' }, ...o.groups]
+    .map(g => `<button class="chip" type="button" data-g="${g.id}" aria-pressed="${g.id === 'all'}"><span class="sw" style="background:${g.c}"></span>${esc(g.name)}</button>`)
+    .join('')
+  function render() {
+    const q = input.value.trim().toLowerCase()
+    const shown = o.rows.filter(r => (group === 'all' || r.group === group) && (!q || o.text(r).toLowerCase().includes(q)))
+    // While searching, every match shows so none are hidden.
+    const showAll = q !== '' || isOpen
+    body.innerHTML = shown.map(o.rowHtml).join('') ||
+      `<tr><td class="none" colspan="${o.cols}">Nothing matches “${esc(q)}”. Try another word.</td></tr>`
+    ;[...body.rows].forEach((tr, i) => { tr.hidden = !showAll && i >= ROWS_CLOSED })
+    const hiddenCount = showAll ? 0 : Math.max(0, shown.length - ROWS_CLOSED)
+    $(o.count).textContent = `${shown.length} of ${o.rows.length} ${o.noun}`
+    more.hidden = q !== '' || (!isOpen && hiddenCount === 0)
+    more.textContent = isOpen ? 'Show less' : `Show more (${hiddenCount} more)`
+    more.setAttribute('aria-expanded', String(isOpen))
+  }
+  chipBox.addEventListener('click', ev => {
+    const b = ev.target.closest('.chip')
+    if (!b) return
+    group = b.dataset.g
+    chipBox.querySelectorAll('.chip').forEach(c => c.setAttribute('aria-pressed', String(c === b)))
+    render()
+  })
+  input.addEventListener('input', render)
+  more.addEventListener('click', () => {
+    isOpen = !isOpen
+    render()
+    if (!isOpen) $(o.title).scrollIntoView({ block: 'start' })
+  })
+  render()
+  return render
+}
+
+// ---------- shortcuts: [place, name, Mac keys, Windows keys (blank = same, "-" = none), usage] ----------
+// Alternatives are split with " · ". From code.claude.com and support.claude.com, October 2026.
+const PLACES = [
+  { id: 'cc', name: 'Claude Code (terminal)', c: 'var(--coral)' },
+  { id: 'desk', name: 'Desktop app', c: 'var(--grape)' },
+  { id: 'vscode', name: 'VS Code', c: 'var(--sky)' },
+  { id: 'jb', name: 'JetBrains', c: 'var(--pink)' },
+  { id: 'docs', name: 'Claude Docs (web & app)', c: 'var(--mint)' },
+]
+const SHORTCUTS = [
+  ['cc', 'Interrupt or clear', 'Ctrl+C', '', 'Stops what Claude is doing. When idle, the first press clears the prompt and the second quits.'],
+  ['cc', 'Quit', 'Ctrl+D (twice)', '', 'Quits Claude Code. With text in the prompt it deletes the next letter instead.'],
+  ['cc', 'Stop the answer', 'Esc', '', 'Stops Claude mid-answer, closes a menu, or says no to a permission question.'],
+  ['cc', 'Clear draft or rewind', 'Esc Esc', '', 'With text: clears the draft. With an empty prompt: opens the rewind menu.'],
+  ['cc', 'Switch permission mode', 'Shift+Tab', 'Shift+Tab · Alt+M', 'Cycles default, auto-accept edits, plan and auto. Alt+M is for Windows terminals without VT mode.'],
+  ['cc', 'Switch model', 'Option+P', 'Alt+P', 'Changes the model and keeps your prompt.'],
+  ['cc', 'Thinking on or off', 'Option+T', 'Alt+T', 'Turns extended thinking on or off. The newest models ignore it.'],
+  ['cc', 'Fast mode', 'Option+O', 'Alt+O', 'Turns fast mode on or off.'],
+  ['cc', 'Transcript view', 'Ctrl+O', '', 'Shows every tool call and Claude’s thinking.'],
+  ['cc', 'To-do list', 'Ctrl+T', '', 'Shows or hides Claude’s step checklist.'],
+  ['cc', 'Send to background', 'Ctrl+B', '', 'Moves a running command or helper to the background. In tmux, press it twice.'],
+  ['cc', 'Stop all helpers', 'Ctrl+X Ctrl+K', '', 'Press it twice within 3 seconds to stop every background helper.'],
+  ['cc', 'Send queued messages', 'Ctrl+Enter · Ctrl+X Ctrl+S', '', 'Sends messages waiting in the queue right away.'],
+  ['cc', 'Search history', 'Ctrl+R', '', 'Finds an earlier prompt as you type.'],
+  ['cc', 'Earlier prompts', '↑ ↓ · Ctrl+P Ctrl+N', '', 'Steps back and forward through what you typed before.'],
+  ['cc', 'Put a draft aside', 'Ctrl+S', '', 'Stashes the draft. Press again on an empty prompt to bring it back.'],
+  ['cc', 'Edit in your editor', 'Ctrl+G · Ctrl+X Ctrl+E', '', 'Opens the prompt in your own text editor.'],
+  ['cc', 'Paste a picture', 'Ctrl+V', 'Alt+V', 'Attaches a screenshot as [Image #N]. In iTerm2 on a Mac, use Cmd+V.'],
+  ['cc', 'Talk instead of type', 'Hold Space', '', 'Dictates your prompt. Turn it on first with /voice.'],
+  ['cc', 'Redraw the screen', 'Ctrl+L', '', 'Tidies a messy screen without losing anything.'],
+  ['cc', 'Pause Claude Code', 'Ctrl+Z', '-', 'Drops back to the shell. Type fg to return. Mac and Linux only.'],
+  ['cc', 'Accept a suggestion', 'Tab', '', 'Accepts autocomplete. On a permission question it lets you add a comment.'],
+  ['cc', 'Move between tabs', '← →', '', 'Switches tabs in menus and permission dialogs.'],
+  ['cc', 'Shortcut help', '?', '', 'Shows the shortcut list. Type it in an empty prompt.'],
+  ['cc', 'New line', 'Shift+Enter · Ctrl+J · \\ then Enter · Option+Enter', 'Shift+Enter · Ctrl+J · \\ then Enter', 'Adds a line without sending. Ctrl+J works in every terminal.'],
+  ['cc', 'Start or end of line', 'Ctrl+A · Ctrl+E', '', 'Moves the cursor to the start or end of the line.'],
+  ['cc', 'Jump a word', 'Option+B · Option+F', 'Alt+B · Alt+F', 'Moves the cursor back or forward one word.'],
+  ['cc', 'Delete to end of line', 'Ctrl+K', '', 'Deletes to the end of the line and keeps it for pasting.'],
+  ['cc', 'Delete to start of line', 'Ctrl+U', '', 'Deletes back to the start of the line.'],
+  ['cc', 'Delete a word', 'Ctrl+W', '', 'Deletes back to the last space, so a whole file path goes at once.'],
+  ['cc', 'Delete to end of word', 'Option+D', 'Alt+D', 'Deletes forward to the end of the word.'],
+  ['cc', 'Paste what you deleted', 'Ctrl+Y', '', 'Pastes the last deleted text. Alt+Y right after steps through older ones.'],
+  ['cc', 'Undo typing', 'Ctrl+_', '', 'Undoes your last change to the prompt.'],
+  ['cc', 'Commands menu', '/', '', 'Type it at the start to list commands and skills.'],
+  ['cc', 'Run a shell command', '!', '', 'Type it at the start, then a command, like ! git status.'],
+  ['cc', 'Point at a file', '@', '', 'Type @ and part of a file name to attach that file.'],
+  ['cc', 'Emoji', ':', '', 'Type : and a name to insert an emoji.'],
+  ['cc', 'Leave the transcript', 'q · Esc · Ctrl+C', '', 'Goes from the transcript view back to the chat.'],
+  ['cc', 'Jump between prompts', '{ · }', '', 'In the fullscreen transcript, goes to the previous or next thing you typed.'],
+  ['cc', 'Open transcript in editor', 'v', '', 'In the fullscreen transcript, opens the whole chat in your text editor.'],
+  ['desk', 'Shortcut list', 'Cmd+/', 'Ctrl+/', 'Shows every shortcut in the app.'],
+  ['desk', 'New session', 'Cmd+N', 'Ctrl+N', 'Starts a new session.'],
+  ['desk', 'Close session', 'Cmd+W', 'Ctrl+W', 'Closes the session.'],
+  ['desk', 'Next or previous session', 'Ctrl+Tab · Ctrl+Shift+Tab', '', 'Moves between your open sessions.'],
+  ['desk', 'Stop the answer', 'Esc', '', 'Stops Claude mid-answer.'],
+  ['desk', 'Accept a suggestion', 'Tab · →', '', 'Uses the suggested prompt in an empty box.'],
+  ['desk', 'Changes pane', 'Cmd+Shift+D', 'Ctrl+Shift+D', 'Shows or hides the diff of what changed.'],
+  ['desk', 'Browser pane', 'Cmd+Shift+B', 'Ctrl+Shift+B', 'Shows or hides the built-in browser.'],
+  ['desk', 'Pick a page element', 'Cmd+Shift+S', 'Ctrl+Shift+S', 'Selects something on the page in the Browser pane.'],
+  ['desk', 'Terminal pane', 'Ctrl+`', '', 'Shows or hides the terminal.'],
+  ['desk', 'Close a pane', 'Cmd+\\', 'Ctrl+\\', 'Closes the pane you are in.'],
+  ['desk', 'Leave split view', 'Cmd+Ctrl+W', 'Ctrl+Alt+W', 'Takes the session out of split view.'],
+  ['desk', 'Side chat', 'Cmd+;', 'Ctrl+;', 'Opens a side chat.'],
+  ['desk', 'View modes', 'Ctrl+O', '', 'Cycles through the view modes.'],
+  ['desk', 'Permission menu', 'Cmd+Shift+M', 'Ctrl+Shift+M', 'Changes the permission mode. Shift+Tab does not do this in the app.'],
+  ['desk', 'Model menu', 'Cmd+Shift+I', 'Ctrl+Shift+I', 'Changes the model.'],
+  ['desk', 'Effort menu', 'Cmd+Shift+E', 'Ctrl+Shift+E', 'Changes how hard Claude thinks.'],
+  ['desk', 'Pick an environment', 'Cmd+Option+1–9', 'Alt+1–9', 'Chooses an environment on the new-session screen.'],
+  ['desk', 'New environment', 'Cmd+Option+0', 'Alt+0', 'Opens the New environment dialog.'],
+  ['desk', 'Quick Entry', 'Double-tap Option · Option+Space', '-', 'Opens a chat box on top of any app. Mac only.'],
+  ['desk', 'Voice dictation', 'Caps Lock', '-', 'Press to start talking and again to stop. Off by default, macOS 14 or newer.'],
+  ['vscode', 'Focus Claude', 'Cmd+Esc', 'Ctrl+Esc', 'Jumps between your code and Claude, and opens Claude if it is closed.'],
+  ['vscode', 'New tab', 'Cmd+Shift+Esc', 'Ctrl+Shift+Esc', 'Opens a new conversation as an editor tab.'],
+  ['vscode', 'Reopen closed chat', 'Cmd+Shift+T', 'Ctrl+Shift+T', 'Brings back the last Claude tab you closed.'],
+  ['vscode', 'Point at selected code', 'Option+K', 'Alt+K', 'Adds @file#lines for the lines you selected.'],
+  ['vscode', 'Focus view', 'Ctrl+Option+F', 'Ctrl+Alt+F', 'Hides or shows tool calls and thinking.'],
+  ['vscode', 'New line', 'Shift+Enter', '', 'Adds a line without sending.'],
+  ['vscode', 'Stop the answer', 'Esc', '', 'Stops Claude. Background helpers keep going.'],
+  ['vscode', 'Open thinking', 'Ctrl+O', '', 'Expands Claude’s thinking blocks.'],
+  ['jb', 'Open Claude Code', 'Cmd+Esc', 'Ctrl+Esc', 'Starts Claude Code from the editor.'],
+  ['jb', 'Point at selected code', 'Cmd+Option+K', 'Ctrl+Alt+K', 'Adds @file#L1-99 for the lines you selected.'],
+  ['jb', 'New line', 'Option+Enter', '-', 'Turn it on in Settings → Tools → Claude Code. Mac only.'],
+  ['docs', 'Shortcut list', 'Cmd+/ · ?', 'Ctrl+/ · ?', 'Shows every shortcut in a doc.'],
+  ['docs', 'Bold, italic, underline', 'Cmd+B · Cmd+I · Cmd+U', 'Ctrl+B · Ctrl+I · Ctrl+U', 'Formats the selected text.'],
+  ['docs', 'Strikethrough', 'Cmd+Shift+S', 'Ctrl+Shift+S', 'Draws a line through the text.'],
+  ['docs', 'Inline code', 'Cmd+E', 'Ctrl+E', 'Shows the text as code.'],
+  ['docs', 'Link', 'Cmd+K', 'Ctrl+K', 'Adds a link.'],
+  ['docs', 'Undo or redo', 'Cmd+Z · Cmd+Shift+Z', 'Ctrl+Z · Ctrl+Y', 'Takes back or brings back a change.'],
+  ['docs', 'Heading 1 to 6', 'Cmd+Option+1–6', 'Ctrl+Alt+1–6', 'Turns the line into a heading.'],
+  ['docs', 'Normal text', 'Cmd+Option+0', 'Ctrl+Alt+0', 'Turns a heading back into normal text.'],
+  ['docs', 'Lists', 'Cmd+Shift+7 · 8 · 9', 'Ctrl+Shift+7 · 8 · 9', 'Numbered list, bulleted list or checklist.'],
+  ['docs', 'Quote', 'Cmd+Shift+B', 'Ctrl+Shift+B', 'Makes a quote block.'],
+  ['docs', 'Code block', 'Cmd+Option+C', 'Ctrl+Alt+C', 'Makes a code block.'],
+  ['docs', 'Comment', 'Cmd+Option+M', 'Ctrl+Alt+M', 'Comments on the selected text.'],
+  ['docs', 'Post comment', 'Cmd+Return', 'Ctrl+Enter', 'Sends your comment.'],
+  ['docs', 'Insert menus', '/ · @ · :', '', 'Opens the block menu, mentions someone, or adds an emoji.'],
+].map(([group, name, mac, win, usage]) => ({ group, name, mac, win: win || mac, usage }))
+const placeOf = id => PLACES.find(p => p.id === id)
+const keysHtml = k => k === '-'
+  ? '<span class="na">Not on Windows</span>'
+  : k.split(' · ').map(x => `<kbd>${esc(x)}</kbd>`).join(' ')
+let keyOs = /Mac|iPhone|iPad/.test(navigator.platform) ? 'mac' : 'win'
+const renderKeys = tableSection({
+  input: '#kq', chips: '#key-chips', body: '#keys-body', count: '#key-count', more: '#keys-more', title: '#t-keys',
+  cols: 4, noun: 'shortcuts', groups: PLACES, rows: SHORTCUTS,
+  text: s => [s.name, s.mac, s.win, s.usage, placeOf(s.group).name].join(' '),
+  rowHtml: s => {
+    const p = placeOf(s.group)
+    return `<tr style="--c:${p.c}"><td class="nm">${esc(s.name)}</td><td class="keys">${keysHtml(s[keyOs])}</td><td>${esc(s.usage)}</td><td><span class="place">${esc(p.name)}</span></td></tr>`
+  },
+})
+const osSeg = $('#os-seg')
+const markOs = () => osSeg.querySelectorAll('button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.os === keyOs)))
+markOs()
+osSeg.addEventListener('click', ev => {
+  const b = ev.target.closest('button')
+  if (!b) return
+  keyOs = b.dataset.os
+  markOs()
+  renderKeys()
+})
+$('#pill-keys').textContent = `${SHORTCUTS.length} shortcuts`
+
+// ---------- commands: [group, name, usage, example]. From code.claude.com, October 2026. ----------
+const CMD_GROUPS = [
+  { id: 'session', name: 'Chat & session', c: 'var(--sky)' },
+  { id: 'setup', name: 'Settings', c: 'var(--teal)' },
+  { id: 'agents', name: 'Helpers & automation', c: 'var(--grape)' },
+  { id: 'review', name: 'Review & check', c: 'var(--leaf)' },
+  { id: 'make', name: 'Plugins, skills & apps', c: 'var(--pink)' },
+  { id: 'remote', name: 'Other devices', c: 'var(--sun)' },
+  { id: 'account', name: 'Account & help', c: 'var(--slate)' },
+  { id: 'shell', name: 'Shell commands', c: 'var(--coral)' },
+  { id: 'flags', name: 'Shell flags', c: 'var(--orange)' },
+]
+const COMMANDS = [
+  ['session', '/clear [name]', 'Starts a fresh, empty chat. Also /reset or /new.', '/clear auth-bugfix'],
+  ['session', '/compact [focus]', 'Squeezes the chat into a short summary to free up room.', '/compact focus on the API changes'],
+  ['session', '/context [all]', 'Shows how full Claude’s notebook (context) is, as a colored grid.', '/context all'],
+  ['session', '/btw [question]', 'Asks a side question that is not added to the chat.', '/btw what does --bare skip?'],
+  ['session', '/rewind', 'Goes back to a checkpoint, for the chat, the code, or both. Also /checkpoint or /undo.', '/rewind'],
+  ['session', '/resume [session]', 'Opens an earlier chat by name, or shows a list. Also /continue.', '/resume auth-refactor'],
+  ['session', '/branch [name]', 'Splits the chat to try another idea. The original stays in /resume.', '/branch try-redis-cache'],
+  ['session', '/fork [prompt]', 'Copies the chat into a new background session and keeps working here.', '/fork write the migration tests'],
+  ['session', '/subtask <task>', 'Sends a helper that knows the whole chat. Its result comes back here.', '/subtask audit the logging calls'],
+  ['session', '/rename [name]', 'Renames the session. With no name, Claude picks one.', '/rename payments-v2'],
+  ['session', '/recap', 'Writes a one-line summary of this session.', '/recap'],
+  ['session', '/export [file]', 'Saves the chat as a text file, or copies it.', '/export notes/session.txt'],
+  ['session', '/copy [N]', 'Copies Claude’s last answer (or the Nth latest) to the clipboard.', '/copy 2'],
+  ['session', '/diff', 'Shows the changes in your files, including Claude’s edits.', '/diff'],
+  ['session', '/focus [on|off]', 'Shows only your last prompt, a tool summary and the final answer. Fullscreen only.', '/focus on'],
+  ['session', '/color [color]', 'Sets the color of the prompt bar for this session.', '/color blue'],
+  ['session', '/cd <path>', 'Moves the session to another folder and keeps the chat.', '/cd ../api-service'],
+  ['session', '/exit', 'Quits Claude Code. Also /quit.', '/exit'],
+  ['setup', '/config [key=value]', 'Opens Settings, or sets a value directly. Also /settings.', '/config theme=dark'],
+  ['setup', '/model [model]', 'Switches the model and keeps it as your default.', '/model sonnet'],
+  ['setup', '/effort [level]', 'Sets how hard Claude thinks: low, medium, high, xhigh, max or auto.', '/effort high'],
+  ['setup', '/fast [on|off]', 'Turns fast mode on or off.', '/fast on'],
+  ['setup', '/advisor [model|off]', 'Adds a second model that Claude can ask for advice.', '/advisor opus'],
+  ['setup', '/plan [task]', 'Switches to plan mode, and can start planning a task straight away.', '/plan fix the auth bug'],
+  ['setup', '/permissions', 'Lists and changes what Claude may do without asking. Also /allowed-tools.', '/permissions'],
+  ['setup', '/auto-mode-setup', 'Drafts rules for auto mode from your project, for you to review.', '/auto-mode-setup'],
+  ['setup', '/sandbox', 'Turns the sandbox on or off and shows its settings.', '/sandbox'],
+  ['setup', '/add-dir <path>', 'Lets Claude work in one more folder this session.', '/add-dir ../shared-lib'],
+  ['setup', '/memory', 'Edits CLAUDE.md files and your auto memory.', '/memory'],
+  ['setup', '/init', 'Writes a first CLAUDE.md for your project.', '/init'],
+  ['setup', '/hooks', 'Shows your hooks.', '/hooks'],
+  ['setup', '/update-config [ask]', 'Changes settings.json from a plain request.', '/update-config allow npm test in this project'],
+  ['setup', '/fewer-permission-prompts', 'Builds an allow list of safe commands from your past chats.', '/fewer-permission-prompts'],
+  ['setup', '/autocompact [auto|tokens]', 'Sets how full the chat gets before it is squeezed automatically.', '/autocompact 500k'],
+  ['setup', '/theme', 'Changes the colors.', '/theme'],
+  ['setup', '/output-style [style]', 'Changes how Claude writes its answers.', '/output-style concise'],
+  ['setup', '/statusline [description]', 'Builds the info line under the prompt from a description.', '/statusline show git branch and context %'],
+  ['setup', '/keybindings', 'Opens your keyboard shortcuts file.', '/keybindings'],
+  ['setup', '/terminal-setup', 'Sets up Shift+Enter for new lines in your terminal.', '/terminal-setup'],
+  ['setup', '/tui [default|fullscreen]', 'Switches the screen style and keeps the chat.', '/tui fullscreen'],
+  ['setup', '/scroll-speed', 'Changes the mouse-wheel scroll speed. Fullscreen only.', '/scroll-speed'],
+  ['setup', '/voice [hold|tap|off]', 'Turns voice typing on or off.', '/voice hold'],
+  ['setup', '/privacy-settings', 'Shows and changes your privacy settings. Pro and Max only.', '/privacy-settings'],
+  ['agents', '/agents', 'Reminds you how to make helpers: ask Claude, or edit .claude/agents/.', '/agents'],
+  ['agents', '/tasks', 'Shows background work in this session. Also /bashes.', '/tasks'],
+  ['agents', '/background [prompt]', 'Sends this whole session to the background and frees the terminal. Also /bg.', '/bg run the test suite and report back'],
+  ['agents', '/stop', 'Stops the background session you are attached to.', '/stop'],
+  ['agents', '/list-agents', 'Lists helpers and sessions Claude can message. Also /peers.', '/list-agents'],
+  ['agents', '/batch <instruction>', 'Splits a huge change into 5 to 30 parts, each done by its own helper.', '/batch migrate src/ from JavaScript to TypeScript'],
+  ['agents', '/workflows', 'Shows workflow runs so you can watch, pause or resume them.', '/workflows'],
+  ['agents', '/goal [condition|clear]', 'Keeps Claude working, turn after turn, until the goal is met.', '/goal all tests in test/auth pass'],
+  ['agents', '/loop [interval] [prompt]', 'Repeats a prompt on a timer while the session is open. Also /proactive.', '/loop 5m check if the deploy finished'],
+  ['agents', '/schedule [description]', 'Sets up tasks that run in the cloud at set times. Also /routines.', '/schedule every weekday at 9am summarize open PRs'],
+  ['agents', '/deep-research <question>', 'Searches the web widely, cross-checks sources and writes a cited report.', '/deep-research state of WebAssembly GC support'],
+  ['review', '/code-review [level] [target]', 'Checks your changes for bugs. --fix applies the fixes; ultra runs a deep cloud review. Also /review.', '/code-review high 1234'],
+  ['review', '/ultrareview [PR]', 'Runs a deep review with many helpers in the cloud. Same as /code-review ultra.', '/ultrareview 1234'],
+  ['review', '/security-review', 'Checks your branch for safety holes like injection or leaked data.', '/security-review'],
+  ['review', '/simplify [target]', 'Tidies changed code: reuse, simpler logic, speed. Does not hunt bugs.', '/simplify src/api'],
+  ['review', '/verify', 'Builds and runs the app to prove a change works.', '/verify'],
+  ['review', '/run', 'Starts your app and drives it to see a change working.', '/run'],
+  ['review', '/run-skill-generator', 'Writes a skill that teaches /run and /verify how to start your app.', '/run-skill-generator'],
+  ['review', '/autofix-pr [prompt]', 'Starts a cloud session that watches your pull request and fixes failing checks.', '/autofix-pr only fix lint and type errors'],
+  ['review', '/doctor', 'Checks your install and settings, and offers fixes. Also /checkup.', '/doctor'],
+  ['review', '/debug [problem]', 'Turns on debug logging and reads the log for you.', '/debug hooks not firing'],
+  ['review', '/insights', 'Makes a report about your recent sessions.', '/insights'],
+  ['review', '/team-onboarding', 'Writes a guide for new teammates from your last 30 days of use.', '/team-onboarding'],
+  ['review', '/heapdump', 'Saves a memory snapshot for bug reports. Hidden, so type it in full.', '/heapdump'],
+  ['make', '/plugin [subcommand]', 'Opens the plugin manager, or installs, turns on and removes plugins. Also /plugins.', '/plugin install code-review@claude-plugins-official'],
+  ['make', '/reload-plugins', 'Applies plugin changes without restarting.', '/reload-plugins'],
+  ['make', '/plugin-authoring', 'Loads the guide for making a mod.', '/plugin-authoring'],
+  ['make', '/skills', 'Lists your skills and how much room each one takes.', '/skills'],
+  ['make', '/reload-skills', 'Finds skills you added during this session.', '/reload-skills'],
+  ['make', '/skill-doctor', 'Shows what each skill costs and how often it is used.', '/skill-doctor'],
+  ['make', '/mcp', 'Shows your connectors (MCP servers) and lets you sign in to them.', '/mcp'],
+  ['make', '/ide', 'Connects to your code editor and shows its status.', '/ide'],
+  ['make', '/chrome', 'Sets up Claude in Chrome.', '/chrome'],
+  ['make', '/claude-in-chrome [task]', 'Has Claude do a task in your Chrome browser.', '/claude-in-chrome test the login form on localhost:3000'],
+  ['make', '/install-github-app', 'Adds Claude to a GitHub repo, with optional GitHub Actions setup.', '/install-github-app'],
+  ['make', '/install-slack-app', 'Adds Claude to Slack.', '/install-slack-app'],
+  ['make', '/import [codex|gemini|cursor]', 'Brings over instructions, connectors and skills from another coding tool.', '/import codex --dry-run'],
+  ['make', '/setup-bedrock', 'Walks you through Amazon Bedrock setup. Hidden until it is turned on.', '/setup-bedrock'],
+  ['make', '/setup-vertex', 'Walks you through Google Cloud setup. Hidden until it is turned on.', '/setup-vertex'],
+  ['make', '/claude-api [subcommand]', 'Loads the Claude API guide for your project’s language.', '/claude-api migrate'],
+  ['make', '/design [brief]', 'Drafts UI mockups or posters as a Claude Design artifact.', '/design a settings screen for a banking app'],
+  ['make', '/design-sync [hint]', 'Uploads your repo’s design system to Claude Design. Sign in first with /design-login.', '/design-sync Acme DS'],
+  ['make', '/slides [brief]', 'Makes a slide deck.', '/slides a quarterly review of the platform team'],
+  ['make', '/dataviz [request]', 'Gives chart and dashboard design help.', '/dataviz bar chart of monthly signups'],
+  ['make', '/artifacts', 'Lists your published pages and opens or copies one.', '/artifacts'],
+  ['make', '/artifact-capabilities', 'Loads the guide to what published pages can do.', '/artifact-capabilities'],
+  ['make', '/artifact-diagramming', 'Loads the guide for drawing diagrams in pages.', '/artifact-diagramming'],
+  ['remote', '/remote-control', 'Lets you drive this session from claude.ai or your phone. Also /rc.', '/rc'],
+  ['remote', '/teleport', 'Pulls a cloud session into this terminal. Also /tp.', '/teleport'],
+  ['remote', '/desktop', 'Moves this session into the desktop app. Also /app.', '/desktop'],
+  ['remote', '/mobile', 'Shows a QR code to get the mobile app.', '/mobile'],
+  ['remote', '/web-setup', 'Connects your GitHub account for cloud sessions.', '/web-setup'],
+  ['remote', '/remote-env', 'Picks the default cloud environment.', '/remote-env'],
+  ['account', '/usage', 'Shows cost, plan limits and activity. Also /cost and /stats.', '/usage'],
+  ['account', '/usage-credits', 'Sets up or asks for usage credits when you hit a limit.', '/usage-credits'],
+  ['account', '/rate-limit-options', 'Shows ways to keep working when you hit a limit.', '/rate-limit-options'],
+  ['account', '/upgrade', 'Opens the page to move to a bigger plan.', '/upgrade'],
+  ['account', '/login', 'Signs in to your Anthropic account.', '/login'],
+  ['account', '/logout', 'Signs out.', '/logout'],
+  ['account', '/status', 'Shows version, model, account and connection.', '/status'],
+  ['account', '/help', 'Shows help and the list of commands.', '/help'],
+  ['account', '/bug [report]', 'Reports a bug, with a consent screen before anything is sent. Also /share.', '/bug the statusline flickers'],
+  ['account', '/feedback [report]', 'Sends product feedback.', '/feedback'],
+  ['account', '/release-notes', 'Shows what is new in each version.', '/release-notes'],
+  ['account', '/powerup', 'Short lessons with demos to discover features.', '/powerup'],
+  ['account', '/passes', 'Shares a free week of Claude Code with friends, if you can.', '/passes'],
+  ['account', '/stickers', 'Orders Claude Code stickers.', '/stickers'],
+  ['account', '/radio', 'Opens lo-fi radio in your browser.', '/radio'],
+  ['shell', 'claude', 'Starts a chat.', 'claude'],
+  ['shell', 'claude "question"', 'Starts a chat with a first message.', 'claude "explain this project"'],
+  ['shell', 'claude -p "question"', 'Answers once and exits, for scripts. Also --print.', 'claude -p "explain this function"'],
+  ['shell', '… | claude -p', 'Works on text piped in from another command.', 'cat logs.txt | claude -p "explain"'],
+  ['shell', 'claude -c', 'Continues the last chat in this folder. Also --continue.', 'claude -c'],
+  ['shell', 'claude -r <session>', 'Resumes a chat by name or ID, or shows a list. Also --resume.', 'claude -r auth-refactor "Finish this PR"'],
+  ['shell', 'claude update', 'Updates Claude Code.', 'claude update'],
+  ['shell', 'claude install [version]', 'Installs or reinstalls Claude Code: stable, latest or a version.', 'claude install stable'],
+  ['shell', 'claude doctor', 'Checks your install without starting a chat.', 'claude doctor'],
+  ['shell', 'claude auth login', 'Signs in. --sso forces single sign-on.', 'claude auth login'],
+  ['shell', 'claude auth logout', 'Signs out.', 'claude auth logout'],
+  ['shell', 'claude auth status', 'Says whether you are signed in.', 'claude auth status --text'],
+  ['shell', 'claude setup-token', 'Makes a long-lived sign-in token for CI and scripts.', 'claude setup-token'],
+  ['shell', 'claude agents', 'Opens a view of all your background sessions.', 'claude agents'],
+  ['shell', 'claude attach <id>', 'Connects this terminal to a background session.', 'claude attach 7c5dcf5d'],
+  ['shell', 'claude logs <id>', 'Prints the recent output of a background session.', 'claude logs 7c5dcf5d'],
+  ['shell', 'claude respawn <id>', 'Restarts a background session and keeps its chat.', 'claude respawn 7c5dcf5d'],
+  ['shell', 'claude stop <id>', 'Stops a background session. Also claude kill.', 'claude stop 7c5dcf5d'],
+  ['shell', 'claude rm <id>', 'Removes a background session from the list.', 'claude rm 7c5dcf5d'],
+  ['shell', 'claude daemon <logs|run|status|stop>', 'Manages the program that runs background sessions.', 'claude daemon status'],
+  ['shell', 'claude remote-control', 'Starts a server so claude.ai or your phone can drive Claude Code.', 'claude remote-control --name "My Project"'],
+  ['shell', 'claude ultrareview [target]', 'Runs a deep cloud review from a script.', 'claude ultrareview 1234 --json'],
+  ['shell', 'claude import [source]', 'Starts a chat that runs /import.', 'claude import codex --dry-run'],
+  ['shell', 'claude purge [path]', 'Deletes all saved Claude Code data for a project.', 'claude purge ~/work/repo --dry-run'],
+  ['shell', 'claude auto-mode defaults', 'Prints the built-in auto mode rules.', 'claude auto-mode defaults'],
+  ['shell', 'claude auto-mode reset', 'Puts the auto mode settings back to default.', 'claude auto-mode reset --yes'],
+  ['shell', 'claude mcp add <name> …', 'Adds a connector (MCP server).', 'claude mcp add --transport http notion https://mcp.notion.com/mcp'],
+  ['shell', 'claude mcp add-json <name> <json>', 'Adds a connector from a JSON config.', `claude mcp add-json events '{"type":"ws","url":"wss://mcp.example.com/socket"}'`],
+  ['shell', 'claude mcp list', 'Lists your connectors and whether they work.', 'claude mcp list'],
+  ['shell', 'claude mcp get <name>', 'Shows one connector’s details.', 'claude mcp get notion'],
+  ['shell', 'claude mcp remove <name>', 'Removes a connector and its saved sign-in.', 'claude mcp remove notion'],
+  ['shell', 'claude mcp login <name>', 'Signs in to a connector from the shell.', 'claude mcp login sentry'],
+  ['shell', 'claude mcp logout <name>', 'Signs out of a connector.', 'claude mcp logout sentry'],
+  ['shell', 'claude mcp reset-project-choices', 'Forgets which project connectors you approved.', 'claude mcp reset-project-choices'],
+  ['shell', 'claude plugin install <plugin>', 'Installs a plugin from a marketplace.', 'claude plugin install formatter@my-marketplace'],
+  ['shell', 'claude plugin uninstall <plugin>', 'Removes a plugin.', 'claude plugin uninstall formatter@my-marketplace'],
+  ['shell', 'claude plugin enable|disable <plugin>', 'Turns a plugin on or off without removing it.', 'claude plugin disable formatter'],
+  ['shell', 'claude plugin update <plugin>', 'Updates a plugin.', 'claude plugin update formatter@my-marketplace'],
+  ['shell', 'claude plugin list', 'Lists your installed plugins.', 'claude plugin list'],
+  ['shell', 'claude plugin details <name>', 'Shows what is inside a plugin and how much room it takes.', 'claude plugin details formatter'],
+  ['shell', 'claude plugin configure <plugin>', 'Shows or saves a plugin’s options.', 'claude plugin configure formatter@my-marketplace'],
+  ['shell', 'claude plugin prune', 'Removes extra plugins that nothing needs any more.', 'claude plugin prune --dry-run'],
+  ['shell', 'claude plugin init <name>', 'Starts a new plugin from a template.', 'claude plugin init my-helper --with skills hooks'],
+  ['shell', 'claude plugin validate <path>', 'Checks a plugin for mistakes.', 'claude plugin validate ./my-plugin --strict'],
+  ['shell', 'claude plugin test [folder]', 'Runs a mod’s tests.', 'claude plugin test ./first-mod'],
+  ['shell', 'claude plugin eval [target]', 'Runs a plugin’s test cases and scores them.', 'claude plugin eval ./my-plugin --runs 3'],
+  ['shell', 'claude plugin tag [path]', 'Makes a release tag for a plugin version.', 'claude plugin tag plugins/formatter --dry-run'],
+  ['shell', 'claude plugin marketplace add <source>', 'Adds a plugin marketplace.', 'claude plugin marketplace add your-org/your-marketplace'],
+  ['shell', 'claude plugin marketplace list|update|remove', 'Lists, refreshes or removes marketplaces.', 'claude plugin marketplace update'],
+  ['shell', 'claude self-hosted-runner setup', 'Registers a machine to run cloud sessions.', 'claude self-hosted-runner setup'],
+  ['shell', 'claude gateway --config <file>', 'Starts a self-hosted gateway, for admins.', 'claude gateway --config gateway.yaml'],
+  ['flags', '--model <name>', 'Picks the model for this session.', 'claude --model sonnet'],
+  ['flags', '--fallback-model <list>', 'Models to try if the main one is busy.', 'claude --fallback-model sonnet,haiku'],
+  ['flags', '--effort <level>', 'Sets thinking effort for this session.', 'claude --effort high'],
+  ['flags', '--advisor <model>', 'Adds an advisor model for this session.', 'claude --advisor opus'],
+  ['flags', '--permission-mode <mode>', 'Starts in a mode: default, acceptEdits, plan, auto, dontAsk or bypassPermissions.', 'claude --permission-mode plan'],
+  ['flags', '--dangerously-skip-permissions', 'Skips every permission question. Use it only inside a sandbox.', 'claude --dangerously-skip-permissions'],
+  ['flags', '--allowedTools <rules>', 'Tools that may run without asking.', 'claude --allowedTools "Bash(git log *)" "Read"'],
+  ['flags', '--disallowedTools <rules>', 'Tools that are blocked.', 'claude --disallowedTools "Bash(git push *)"'],
+  ['flags', '--tools <list>', 'Limits which built-in tools exist at all.', 'claude --tools "Bash,Edit,Read"'],
+  ['flags', '--add-dir <paths>', 'Lets Claude work in more folders.', 'claude --add-dir ../apps ../lib'],
+  ['flags', '-w, --worktree <name>', 'Starts in a safe copy of the repo (a git worktree).', 'claude -w feature-auth'],
+  ['flags', '--bg', 'Starts the session in the background.', 'claude --bg "investigate the flaky test"'],
+  ['flags', '--cloud "<task>"', 'Starts a cloud session for a task.', 'claude --cloud "Fix the login bug"'],
+  ['flags', '--teleport', 'Pulls a cloud session into this terminal.', 'claude --teleport'],
+  ['flags', '--desktop', 'Opens the desktop app in this folder.', 'claude --desktop'],
+  ['flags', '--rc, --remote-control', 'Starts a chat you can also drive from your phone.', 'claude --rc "My Project"'],
+  ['flags', '--from-pr <number>', 'Lists sessions linked to a pull request.', 'claude --from-pr 123'],
+  ['flags', '-n, --name <name>', 'Names the session.', 'claude -n "my-feature-work"'],
+  ['flags', '--fork-session', 'With --resume, saves as a new session instead of the old one.', 'claude --resume abc123 --fork-session'],
+  ['flags', '--agent <name>', 'Runs the session as one of your helpers.', 'claude --agent code-reviewer'],
+  ['flags', '--agents <json>', 'Defines helpers on the spot from JSON.', `claude --agents '{"reviewer":{"description":"Reviews code","prompt":"You are a code reviewer"}}'`],
+  ['flags', '--mcp-config <file>', 'Loads connectors from a JSON file.', 'claude --mcp-config ./mcp.json'],
+  ['flags', '--plugin-dir <path>', 'Loads a plugin folder for this session only.', 'claude --plugin-dir ./my-plugin'],
+  ['flags', '--chrome', 'Turns on Claude in Chrome.', 'claude --chrome'],
+  ['flags', '--ide', 'Connects to your code editor when it starts.', 'claude --ide'],
+  ['flags', '--output-format <format>', 'Print mode output: text, json or stream-json.', 'claude -p "query" --output-format json'],
+  ['flags', '--json-schema <schema>', 'Print mode: returns JSON that matches your schema.', `claude -p --json-schema '{"type":"object"}' "query"`],
+  ['flags', '--max-turns <n>', 'Print mode: stops after this many turns.', 'claude -p --max-turns 3 "query"'],
+  ['flags', '--max-budget-usd <amount>', 'Print mode: stops when the spend reaches this amount.', 'claude -p --max-budget-usd 5.00 "query"'],
+  ['flags', '--bare', 'Bare mode for scripts: no hooks, skills, plugins, connectors or CLAUDE.md.', 'claude --bare -p "query"'],
+  ['flags', '--safe-mode', 'Starts with all your custom setup turned off, to fix a broken config.', 'claude --safe-mode'],
+  ['flags', '--append-system-prompt <text>', 'Adds your own text to Claude’s instructions.', 'claude --append-system-prompt "Always answer in Thai"'],
+  ['flags', '--system-prompt <text>', 'Replaces Claude’s instructions completely.', 'claude --system-prompt "You are a Python expert"'],
+  ['flags', '--settings <file>', 'Uses extra settings for this session.', 'claude --settings ./settings.json'],
+  ['flags', '--disable-slash-commands', 'Turns off all skills and commands.', 'claude --disable-slash-commands'],
+  ['flags', '--debug [categories]', 'Turns on debug logging.', `claude --debug='mcp,startup'`],
+  ['flags', '--verbose', 'Shows the full turn-by-turn output.', 'claude --verbose'],
+  ['flags', '--ax-screen-reader', 'Plain text output for screen readers.', 'claude --ax-screen-reader'],
+  ['flags', '-v, --version', 'Prints the version.', 'claude -v'],
+].map(([group, name, usage, example]) => ({ group, name, usage, example }))
+const cmdGroupOf = id => CMD_GROUPS.find(g => g.id === id)
+tableSection({
+  input: '#cq', chips: '#cmd-chips', body: '#cmds-body', count: '#cmd-count', more: '#cmds-more', title: '#t-cmds',
+  cols: 3, noun: 'commands', groups: CMD_GROUPS, rows: COMMANDS,
+  text: c => [c.name, c.usage, c.example, cmdGroupOf(c.group).name].join(' '),
+  rowHtml: c => `<tr style="--c:${cmdGroupOf(c.group).c}"><td class="nm"><code>${esc(c.name)}</code></td><td>${esc(c.usage)}</td><td><pre class="ex"><code>${esc(c.example)}</code></pre></td></tr>`,
+})
+$('#pill-cmds').textContent = `${COMMANDS.length} commands`
+
+// ---------- habits ----------
+const thinking = `<svg class="face" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="8.5" cy="10" r="1.4" fill="currentColor"/><circle cx="15.5" cy="10" r="1.4" fill="currentColor"/><path d="M8 16h8" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>`
+const happy = `<svg class="face" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="8.5" cy="10" r="1.4" fill="currentColor"/><circle cx="15.5" cy="10" r="1.4" fill="currentColor"/><path d="M7.5 14.5c2.5 3 6.5 3 9 0" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>`
+$('#habits').innerHTML = HABITS.map(([title, bad, good], i) => `
+  <article class="habit">
+    <h3><span class="n">${i + 1}</span>${esc(title)}</h3>
+    <div class="pair">
+      <div class="bubble bad"><span class="lbl">Not so good</span><q>${esc(bad)}</q><span class="result" style="color:var(--bad)">${thinking}<span>Claude has to guess</span></span></div>
+      <div class="bubble good"><span class="lbl">Better</span><q>${esc(good)}</q><span class="result" style="color:var(--good)">${happy}<span>Claude knows what to do</span></span></div>
+    </div>
+  </article>`).join('')
+
+// ---------- quiz ----------
+let qi = 0, score = 0, marks = []
+function renderQuiz() {
+  const box = $('#quiz')
+  const dots = QUIZ.map((_, i) => `<i class="${marks[i] === true ? 'ok' : marks[i] === false ? 'no' : i === qi ? 'now' : ''}"></i>`).join('')
+  if (qi >= QUIZ.length) {
+    const msg = score === QUIZ.length ? 'Perfect! You know the toolbox.' : score >= 4 ? 'Great job!' : 'Nice try. Have another go!'
+    box.innerHTML = `<div class="qtop"><span class="kicker">Done</span><span class="dots">${dots}</span></div>
+      <p class="score">${score} / ${QUIZ.length}</p><p>${msg}</p>
+      <button class="qbtn" type="button" id="again">Try again</button>`
+    $('#again').onclick = () => { qi = 0; score = 0; marks = []; renderQuiz() }
+    return
+  }
+  const [question, options, right, why] = QUIZ[qi]
+  box.innerHTML = `<div class="qtop"><span class="kicker">Question ${qi + 1} of ${QUIZ.length}</span><span class="dots" aria-hidden="true">${dots}</span></div>
+    <h3>${esc(question)}</h3>
+    <div class="answers">${options.map((o, i) => `<button class="answer" type="button" data-i="${i}">${esc(o)}</button>`).join('')}</div>
+    <p class="why" id="why" aria-live="polite"></p>`
+  box.querySelectorAll('.answer').forEach(b => b.addEventListener('click', () => {
+    const pick = Number(b.dataset.i)
+    const isRight = pick === right
+    marks[qi] = isRight
+    if (isRight) score++
+    box.querySelectorAll('.answer').forEach((x, i) => {
+      x.disabled = true
+      if (i === right) x.classList.add('right')
+      else if (i === pick) x.classList.add('wrong')
+    })
+    $('#why').innerHTML = `<b style="color:${isRight ? 'var(--good)' : 'var(--bad)'}">${isRight ? 'Yes!' : 'Not quite.'}</b> ${esc(why)}`
+    const next = document.createElement('button')
+    next.className = 'qbtn'; next.type = 'button'
+    next.textContent = qi === QUIZ.length - 1 ? 'See my score' : 'Next question'
+    next.onclick = () => { qi++; renderQuiz() }
+    box.appendChild(next)
+    next.focus()
+  }))
+}
+
+// ---------- try-it terminal ----------
+const SCRIPTS = [
+  { ask: 'Fix the Save button that does nothing', steps: ['Read save.js', 'Edit save.js', 'Run the tests ✓ 12 passed'], done: 'Fixed! The button saves now, and all tests pass.' },
+  { ask: 'What is on my calendar tomorrow?', steps: ['Google Calendar: look at tomorrow'], done: 'Two things: math club at 3 pm, soccer at 5 pm.' },
+  { ask: 'Make a page that explains volcanoes', steps: ['Plan 4 steps', 'Write volcano.html', 'Publish a private page ✓'], done: 'Here is your private link. Want more pictures?' },
+  { ask: 'Find where we use the word "score"', steps: ['Search for "score"', 'Found 3 files'], done: 'It is in game.js, menu.js and save.js.' },
+  { ask: 'Send helpers to check the menu and the tests', steps: ['Start helper: look at the menu', 'Start helper: look at the tests', 'Both helpers reported back ✓'], done: 'The menu is fine. One test is slow; want me to fix it?' },
+]
+const term = $('#term')
+const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches
+let paused = false, si = 0, timer = null
+const wait = ms => new Promise(r => { timer = setTimeout(r, ms) })
+async function waitWhilePaused() { while (paused) await wait(200) }
+function line(cls, text) { const p = document.createElement('div'); p.className = cls; p.textContent = text; term.appendChild(p); return p }
+
+function showStatic(s) {
+  term.innerHTML = ''
+  line('you', `> ${s.ask}`)
+  s.steps.forEach(t => line(t.includes('✓') ? 'ok' : 'step', `  ● ${t}`))
+  line('done', s.done)
+}
+async function play() {
+  for (;;) {
+    const s = SCRIPTS[si]
+    term.innerHTML = ''
+    const you = line('you', '> ')
+    const cur = document.createElement('span'); cur.className = 'cursor'; you.appendChild(cur)
+    for (const ch of s.ask) { await waitWhilePaused(); cur.before(ch); await wait(45) }
+    cur.remove()
+    await wait(500)
+    for (const t of s.steps) { await waitWhilePaused(); line(t.includes('✓') ? 'ok' : 'step', `  ● ${t}`); await wait(750) }
+    await waitWhilePaused()
+    line('done', s.done)
+    await wait(2600)
+    si = (si + 1) % SCRIPTS.length
+  }
+}
+$('#term-pause').addEventListener('click', ev => {
+  if (reduce) { si = (si + 1) % SCRIPTS.length; showStatic(SCRIPTS[si]); return }
+  paused = !paused
+  ev.currentTarget.textContent = paused ? 'Play' : 'Pause'
+  ev.currentTarget.setAttribute('aria-pressed', String(paused))
+})
+
+// ---------- behind the scenes: Claude drags each piece into its notebook ----------
+const scene = $('#scene')
+const CAPTIONS = [
+  'A new chat starts. Claude’s notebook (its context) is empty.',
+  'At the very start, Claude puts in CLAUDE.md. This happens in every chat, all by itself.',
+  'Next goes the skill menu: only each skill’s name and one-line description, not the recipes.',
+  'You type your ask: “Review my changes”. It goes into the notebook too.',
+  'Your ask matches the code-review skill, so Claude pulls in its full recipe (SKILL.md). It stays for the rest of the chat.',
+  'For the big search, Claude writes a task and carries it to a helper agent’s room.',
+  'The helper starts a fresh notebook: its own instructions (its agent file) plus the task. It never sees your chat.',
+  'The helper reads and searches in its own notebook. None of that reaches Claude’s notebook.',
+  'Only the helper’s final report comes back, and Claude puts it in its notebook.',
+  'When Claude edits a file, a hook runs by itself. It is code that Claude Code runs, so the notebook does not change.',
+]
+$('#scene-dots').innerHTML = CAPTIONS.map(() => '<i></i>').join('')
+const sceneReduce = matchMedia('(prefers-reduced-motion: reduce)').matches
+let scenePaused = false
+let sceneRun = 0
+const piece = id => scene.querySelector(`[data-p="${id}"]`)
+// A box's position inside the scene, in pixels.
+const boxOf = sel => {
+  const r = scene.querySelector(sel).getBoundingClientRect()
+  const s = scene.getBoundingClientRect()
+  return { x: r.left - s.left, y: r.top - s.top, w: r.width, h: r.height }
+}
+const boxNow = el => ({ x: el.offsetLeft, y: el.offsetTop, w: el.offsetWidth, h: el.offsetHeight })
+function put(el, b, isShown = true) {
+  el.style.left = `${b.x}px`
+  el.style.top = `${b.y}px`
+  el.style.width = `${b.w}px`
+  el.style.height = `${b.h}px`
+  el.style.opacity = isShown ? '1' : '0'
+}
+// Stand a bot just left of a box, or inside it when there is no room on the left.
+function walkTo(bot, b) {
+  bot.style.left = `${Math.max(2, b.x - 38)}px`
+  bot.style.top = `${b.y + b.h / 2 - 19}px`
+}
+function caption(i) {
+  $('#scene-cap').textContent = CAPTIONS[i]
+  $('#scene-dots').querySelectorAll('i').forEach((d, k) => d.classList.toggle('on', k === i))
+}
+// Waits that pause with the Pause button and stop when a newer run starts.
+async function sWait(ms, run) {
+  let left = ms
+  while (left > 0) {
+    if (run !== sceneRun) throw new Error('stop')
+    await new Promise(r => setTimeout(r, 100))
+    if (!scenePaused) left -= 100
+  }
+  if (run !== sceneRun) throw new Error('stop')
+}
+// A bot walks to a piece, picks it up, and drags it to a target box.
+async function carry(run, bot, id, target) {
+  const p = piece(id)
+  bot.classList.add('walk')
+  walkTo(bot, boxNow(p))
+  await sWait(900, run)
+  p.classList.add('held')
+  const b = boxOf(target)
+  put(p, b)
+  walkTo(bot, b)
+  await sWait(1100, run)
+  p.classList.remove('held')
+  bot.classList.remove('walk')
+}
+function resetScene() {
+  ;['md', 'menu', 'skill', 'agentfile'].forEach(id => put(piece(id), boxOf(`[data-home="${id}"]`)))
+  const s3 = boxOf('[data-slot="3"]')
+  put(piece('you'), { ...s3, y: s3.y + 60 }, false)
+  put(piece('task'), boxOf('[data-slot="5"]'), false)
+  put(piece('report'), boxOf('[data-r="3"]'), false)
+  const buddy = $('#buddy')
+  const helper = $('#helperbot')
+  walkTo(buddy, boxOf('[data-slot="1"]'))
+  walkTo(helper, boxOf('[data-r="1"]'))
+  helper.style.opacity = '0'
+  $('#noise').innerHTML = ''
+  $('#hookbar').classList.remove('on')
+}
+// The end state, all at once: used when motion is reduced.
+function finalScene() {
+  put(piece('md'), boxOf('[data-slot="1"]'))
+  put(piece('menu'), boxOf('[data-slot="2"]'))
+  put(piece('you'), boxOf('[data-slot="3"]'))
+  put(piece('skill'), boxOf('[data-slot="4"]'))
+  put(piece('report'), boxOf('[data-slot="5"]'))
+  put(piece('agentfile'), boxOf('[data-r="1"]'))
+  put(piece('task'), boxOf('[data-r="2"]'))
+  $('#noise').innerHTML = '<span>Read</span><span>Search</span><span>Read</span>'
+  walkTo($('#buddy'), boxOf('[data-slot="5"]'))
+  $('#helperbot').style.opacity = '1'
+  walkTo($('#helperbot'), boxOf('[data-r="3"]'))
+  $('#scene-cap').textContent = 'Claude’s notebook holds CLAUDE.md, the skill menu, your ask, the skill recipe and the helper’s report. The helper’s own reading stays in its room.'
+}
+async function playScene() {
+  const run = ++sceneRun
+  const buddy = $('#buddy')
+  const helper = $('#helperbot')
+  try {
+    for (;;) {
+      resetScene()
+      caption(0)
+      await sWait(1800, run)
+      caption(1)
+      await carry(run, buddy, 'md', '[data-slot="1"]')
+      await sWait(1300, run)
+      caption(2)
+      await carry(run, buddy, 'menu', '[data-slot="2"]')
+      await sWait(1300, run)
+      caption(3)
+      put(piece('you'), boxOf('[data-slot="3"]'))
+      await sWait(2000, run)
+      caption(4)
+      piece('menu').classList.add('ping')
+      await sWait(1000, run)
+      piece('menu').classList.remove('ping')
+      await carry(run, buddy, 'skill', '[data-slot="4"]')
+      await sWait(1500, run)
+      caption(5)
+      put(piece('task'), boxOf('[data-slot="5"]'))
+      await sWait(800, run)
+      await carry(run, buddy, 'task', '[data-r="2"]')
+      await sWait(600, run)
+      caption(6)
+      helper.style.opacity = '1'
+      await sWait(500, run)
+      await carry(run, helper, 'agentfile', '[data-r="1"]')
+      await sWait(1300, run)
+      caption(7)
+      for (const word of ['Read', 'Search', 'Read', 'Search', 'Read']) {
+        $('#noise').insertAdjacentHTML('beforeend', `<span>${word}</span>`)
+        await sWait(450, run)
+      }
+      await sWait(1200, run)
+      caption(8)
+      put(piece('report'), boxOf('[data-r="3"]'))
+      await sWait(700, run)
+      await carry(run, buddy, 'report', '[data-slot="5"]')
+      await sWait(1600, run)
+      caption(9)
+      $('#hookbar').classList.add('on')
+      await sWait(3200, run)
+      $('#hookbar').classList.remove('on')
+      await sWait(3000, run)
+    }
+  } catch {
+    // A newer run took over, or the scene was reset.
+  }
+}
+function startScene() {
+  if (sceneReduce) { finalScene(); $('#scene-play').hidden = true; $('#scene-replay').hidden = true }
+  else playScene()
+  // Web fonts can change text widths after load, so measure again once they arrive.
+  document.fonts?.ready.then(() => (sceneReduce ? finalScene() : playScene()))
+}
+$('#scene-play').addEventListener('click', ev => {
+  scenePaused = !scenePaused
+  ev.currentTarget.textContent = scenePaused ? 'Play' : 'Pause'
+  ev.currentTarget.setAttribute('aria-pressed', String(scenePaused))
+})
+$('#scene-replay').addEventListener('click', () => {
+  scenePaused = false
+  $('#scene-play').textContent = 'Pause'
+  $('#scene-play').setAttribute('aria-pressed', 'false')
+  playScene()
+})
+// Positions are measured, so start over when the layout changes size.
+let sceneFrame = 0
+addEventListener('resize', () => {
+  cancelAnimationFrame(sceneFrame)
+  sceneFrame = requestAnimationFrame(() => (sceneReduce ? finalScene() : playScene()))
+})
+
+// ---------- start ----------
+renderGrid()
+renderQuiz()
+startScene()
+if (reduce) { showStatic(SCRIPTS[0]); $('#term-pause').textContent = 'Next example' } else { play() }
+</script>
+
+</body>
+</html>
