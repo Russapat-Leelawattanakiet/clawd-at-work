@@ -387,6 +387,26 @@ test('a command that starts by changing folder shows the work after it', async (
   await ui.unmount()
 })
 
+test('paths inside a command are cut to their last name', async ($, on) => {
+  engine(on)
+  on('turn.start', (_, e) => ({ turnId: e.turnId }))
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+  await $.turn.start({ text: 'test it', turnId: 't1' })
+
+  await $.tool.call({ tool: 'Bash', command: 'claude plugin marketplace add "C:\\Users\\me\\Desktop\\my repo"' })
+  await $.tool.call({ tool: 'Bash', command: 'grep -c x ~/.claude/plugins/cache/mod/hooks/register.tsx' })
+  await $.tool.call({ tool: 'Bash', command: 'git push origin/main hooks/a.ts /d' })
+  await $.tool.call({ tool: 'Bash', command: 'curl https://x.com/a/b/c src/**/*.ts' })
+  const ui = await $.ui.mount({ ...PANE, props: { ...PANE.props, bodyColumns: 80 } })
+  expect(await ui.find({ type: 'Text', text: /Run claude plugin marketplace add "my repo"/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /Run grep -c x register\.tsx/ })).toBeDefined()
+  // Short paths, URLs, globs and flags are left as they are.
+  expect(await ui.find({ type: 'Text', text: /Run git push origin\/main hooks\/a\.ts \/d/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /Run curl https:\/\/x\.com\/a\/b\/c src\/\*\*\/\*\.ts/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /Users|\.claude/ })).toBeUndefined()
+  await ui.unmount()
+})
+
 test('the Claude bar shows the main turn and what Claude is doing', async ($, on) => {
   const clock = engine(on)
   on('turn.start', (_, e) => ({ turnId: e.turnId }))
@@ -692,4 +712,87 @@ test('a turn an API error ended reads Failed, and Clawd does not cheer', async (
   expect((await ui.find({ type: 'Text', text: /^ Failed / }))?.text).toMatch(/^ Failed   ✗ 0:02/)
   expect(await ui.find({ type: 'Text', text: /^done!$/ })).toBeUndefined()
   await ui.unmount()
+})
+
+test('other sessions in the same project are listed under Sessions', async ($, on) => {
+  const peer = (id: string, cwd: string, task: string, extra: Record<string, unknown> = {}) => ({
+    id,
+    cwd,
+    task,
+    state: 'working',
+    activity: 'Running npm test',
+    percent: 40,
+    updatedAt: 1_000,
+    ...extra,
+  })
+  const clock = engine(on, { now: 'running' }, {
+    'session:p1': peer('p1', String.raw`C:\repo`, 'fix the login bug'),
+    // A session in a worktree reports its repository's main root, so it is the same project.
+    'session:p2': peer('p2', 'c:/repo/', 'write docs', { state: 'waiting', activity: '' }),
+    'session:p3': peer('p3', String.raw`C:\other`, 'another project'),
+    'session:p4': peer('p4', String.raw`C:\repo`, 'long gone', { updatedAt: 1_000 - 61_000 }),
+  })
+  on('session.id', () => ({ value: 'me' }))
+  // The engine reports no git repository here, so the folder is the project.
+  on('session.repo', () => ({ value: null }))
+  await $.session.start({ cwd: 'c:/Repo', surface: 'terminal', isInteractive: true })
+  for (let ms = 250; ms <= 2_500; ms += 250) await clock.set(1_000 + ms)
+
+  let ui = await $.ui.mount(PANE)
+  expect((await ui.find({ type: 'Text', text: /^Sessions/ }))?.text).toMatch(/^Sessions   2 working$/)
+  expect((await ui.find({ type: 'Text', text: /fix the login bug/ }))?.text).toMatch(/^  . fix the login bug\s+40%$/)
+  expect(await ui.find({ type: 'Text', text: /^ {4}Running npm test$/ })).toBeDefined()
+  expect((await ui.find({ type: 'Text', text: /write docs/ }))?.text).toMatch(/^  \? write docs/)
+  expect(await ui.find({ type: 'Text', text: /another project|long gone/ })).toBeUndefined()
+  await ui.unmount()
+
+  // Sessions that stop reporting drop off within a minute.
+  for (let ms = 62_000; ms <= 64_000; ms += 250) await clock.set(1_000 + ms)
+  ui = await $.ui.mount(PANE)
+  expect(await ui.find({ type: 'Text', text: /^Sessions/ })).toBeUndefined()
+  await ui.unmount()
+})
+
+test('a session publishes what it is doing for the others, and takes it back when it ends', async ($, on) => {
+  // A store of the test's own, to read what the mod publishes.
+  const kept = new Map<string, unknown>()
+  const clock = mock.clock(on, { now: 1_000 })
+  on('store.get', (_: unknown, e: { key: string }) => ({ value: kept.get(e.key) }) as never)
+  on('store.set', (_: unknown, e: { key: string; value: unknown }) => {
+    kept.set(e.key, JSON.parse(JSON.stringify(e.value)))
+    return { value: undefined } as never
+  })
+  on('store.delete', (_: unknown, e: { key: string }) => {
+    kept.delete(e.key)
+    return { value: undefined } as never
+  })
+  on('store.keys', () => ({ value: [...kept.keys()] }) as never)
+  on('session.id', () => ({ value: 'me' }) as never)
+  on('session.repo', () => ({ value: { root: '/home/me/repo', remote: null, internal: false } }) as never)
+  on('command.register', () => ({ value: { command: 'clawd-at-work' } }))
+  on('tool.register', () => ({ value: { tool: 'mcp__clawd-at-work__plan' } }))
+  on('ui.open', () => ({ value: { isPlaced: true } }))
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  on('session.usage', () => ({ value: { startedAt: 0, context: { window: 200_000 }, rateLimits: [] } }))
+  on('prompt.submit', (_, e) => ({ text: e.text }))
+  on('turn.start', (_, e) => ({ turnId: e.turnId }))
+  on('tool.call', () => ({ result: {} }))
+  on('session.end', () => ({ sessionId: 'me' }) as never)
+
+  // Started in a worktree: the project is the repository's main root.
+  await $.session.start({ cwd: '/home/me/repo/.claude/worktrees/w1', surface: 'terminal', isInteractive: true })
+  await $.prompt.submit({ text: 'fix the login bug\nand add a test', wait: false, origin: { kind: 'composer' } })
+  await $.turn.start({ text: 'fix the login bug', turnId: 't1' })
+  await $.tool.call({ tool: 'Bash', command: 'npm test' })
+  for (let ms = 250; ms <= 2_500; ms += 250) await clock.set(1_000 + ms)
+  expect(kept.get('session:me')).toMatchObject({
+    id: 'me',
+    cwd: '/home/me/repo',
+    task: 'fix the login bug',
+    state: 'working',
+    activity: 'Running npm test',
+  })
+
+  await $.session.end({ reason: 'other' } as never)
+  expect(kept.has('session:me')).toBe(false)
 })

@@ -59,7 +59,16 @@ Skills
   don't fit. Files a subagent edits are listed too; files it only reads are not.
 - **Agents.** Every subagent Claude starts, newest first, each in its own color, with an estimated progress bar, run
   time and tool count. Click a row to open a dropdown of its latest tool calls and how long each took.
-- **Skills.** Every skill Claude loads, with its status and time.
+- **Skills.** Every skill Claude loads (through the Skill tool or typed as `/name`), with its status and time.
+- **Sessions.** Other Claude Code sessions working in the same project at the same time (background sessions from
+  `claude --bg`, other terminals, worktrees of the same repository), each with what you last asked it, whether it is
+  working, waiting for you, done, failed or idle, its percent, and what it is doing right now. Sessions waiting for you
+  and working ones come first. A session that closes leaves the list, and one that stops reporting drops off within
+  about a minute. Each session publishes its status in the mod's store, a file shared by every session on this
+  computer.
+
+A permission prompt (Claude asking to run a command) still reads as the action itself, not "waiting for you": Claude
+Code tells the mod when the dialog opens but not when you answer it.
 
 Progress estimates are learned: the mod remembers how long each agent type, turn and step usually takes (kept across
 sessions), so the bars get more accurate the more you use it. An estimate stays below 100% until the work really ends.
@@ -136,6 +145,8 @@ Files:
 
 - `hooks/register.tsx`: the mod (hooks, pane drawing, the `plan` tool)
 - `hooks/register.test.tsx`: tests
+- `hooks/probe*.test.tsx`: tests from the requirement test rounds, one file per round
+- `REQUIREMENTS.md`: what the pane must do, with IDs the tests refer to
 - `types/index.d.ts`: the types of the values the mod keeps in session state
 - `.claude-plugin/plugin.json`: manifest; `.claude-plugin/marketplace.json`: makes this repo installable
 

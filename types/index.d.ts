@@ -48,6 +48,8 @@ export type PlanStep = {
   kind?: 'tool' | 'think'
   key?: string
   count?: number
+  // Auto tool steps only: the call it stands for last failed or was refused.
+  isFailed?: boolean
 }
 
 // What kind of work an action is: it picks Clawd's prop, the word beside
@@ -128,6 +130,30 @@ export type Usage = {
   usd?: number
 }
 
+// This session as it reports itself to the others in the same project.
+export type SelfInfo = {
+  id: string
+  // Its project: the git repository's main root, else the session's folder.
+  cwd: string
+  // What the person last asked, one line; '' before the first prompt.
+  task: string
+}
+
+// One session's status as it publishes it in $.store, read by the other
+// sessions' panes for their Sessions list.
+export type Peer = {
+  id: string
+  cwd: string
+  task: string
+  state: 'working' | 'waiting' | 'done' | 'failed' | 'idle'
+  // What it is doing right now, while working.
+  activity: string
+  // Its Claude bar's percent.
+  percent: number
+  // When it last published, in $.clock.now() time; stale ones drop off.
+  updatedAt: number
+}
+
 declare module 'claude-code' {
   interface PluginState {
     'clawd-at-work': {
@@ -160,6 +186,10 @@ declare module 'claude-code' {
       files: TouchedFile[]
       // The last finished main turn; null until one ends, cleared by each new prompt.
       summary: TurnSummary | null
+      // This session's id, folder and task, set at session start; null before.
+      self: SelfInfo | null
+      // Other sessions working in the same project, as they last published.
+      peers: Peer[]
     }
   }
 }

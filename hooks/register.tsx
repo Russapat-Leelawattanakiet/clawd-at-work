@@ -7,8 +7,10 @@ import type {
   Limit,
   MainTurn,
   Mood,
+  Peer,
   PlanStep,
   Run,
+  SelfInfo,
   TouchedFile,
   TurnSummary,
   Typical,
@@ -44,7 +46,19 @@ const BLINK_EVERY = 17
 const MAX_CALLS = 30
 const SHOWN_CALLS = 8
 // Input fields that name what a tool call works on, in order of preference.
-const TARGET_FIELDS = ['file_path', 'path', 'pattern', 'command', 'url', 'query', 'skill', 'description', 'prompt']
+// A search's pattern comes before the folder it searches in.
+const TARGET_FIELDS = [
+  'file_path',
+  'notebook_path',
+  'pattern',
+  'path',
+  'command',
+  'url',
+  'query',
+  'skill',
+  'description',
+  'prompt',
+]
 const TARGET_MAX = 40
 
 // The plan tool Claude calls to declare its steps; the model sees it as
@@ -52,7 +66,8 @@ const TARGET_MAX = 40
 const PLAN_TOOL = 'plan'
 const PLAN_TOOL_FULL = 'mcp__clawd-at-work__plan'
 const MAX_STEPS = 20
-const STEP_MAX = 60
+// Plan titles are kept up to this long; the pane cuts them to its width.
+const STEP_MAX = 200
 const SHOWN_STEPS = 8
 const PLAN_NOTE = [
   'The person watches a "Claude at work" pane that shows your progress as a bar.',
@@ -106,6 +121,24 @@ const MAX_FILES = 40
 const FAIL_MS = 3_000
 const CHEER_MS = 4_000
 
+// Sessions: each session publishes its status in the store (one file shared
+// by every session on this computer) under its own key, at most every
+// SHARE_MS when it changes and at least every HEARTBEAT_MS. Others in the
+// same project read it; one silent for PEER_STALE_MS drops off the list,
+// and its key is removed after PEER_FORGET_MS.
+const PEER_PREFIX = 'session:'
+const SHARE_MS = 2_000
+const HEARTBEAT_MS = 15_000
+const PEER_STALE_MS = 60_000
+const PEER_FORGET_MS = 10 * 60_000
+const TASK_MAX = 60
+const SHOWN_PEERS = 4
+
+// Where a prompt comes from when it is the person giving a new task: typed at
+// the terminal, sent from the SDK, Remote Control or Slack, a /loop or
+// schedule firing their prompt, or a coordinator's hand-off.
+const PERSON_ORIGINS = new Set(['composer', 'bridge', 'sdk', 'scheduled-trigger', 'slack-ping', 'channel', 'coordinator'])
+
 // Change the shape tag when Run's fields change incompatibly: values stored
 // by an earlier version are then read as the initial value instead.
 const runs = atom({ plugin: 'clawd-at-work', key: 'runs' } as const, [], {
@@ -125,6 +158,8 @@ const feed = atom({ plugin: 'clawd-at-work', key: 'feed' } as const, [])
 const feedCount = atom({ plugin: 'clawd-at-work', key: 'feedCount' } as const, 0)
 const files = atom({ plugin: 'clawd-at-work', key: 'files' } as const, [])
 const summary = atom({ plugin: 'clawd-at-work', key: 'summary' } as const, null)
+const self = atom({ plugin: 'clawd-at-work', key: 'self' } as const, null)
+const peers = atom({ plugin: 'clawd-at-work', key: 'peers' } as const, [])
 
 // ---------------------------------------------------------------- helpers
 
@@ -155,11 +190,87 @@ const clock = (ms: number) => {
 // A short duration for tool lines: 0.4s under ten seconds, else m:ss.
 const short = (ms: number) => (ms < 10_000 ? `${(ms / 1000).toFixed(1)}s` : clock(ms))
 
-// `text` cut to at most `width` characters, ending in … when cut.
-const clip = (text: string, width: number) => (text.length > width ? `${text.slice(0, width - 1)}…` : text)
+// The emoji below U+1F300 that terminals draw two columns wide (✅ ❌ ✨ ⭐
+// ⚡ ⌛ ...), as [first, last] code points.
+const WIDE_SYMBOLS: [number, number][] = [
+  [0x231a, 0x231b], [0x23e9, 0x23ec], [0x23f0, 0x23f0], [0x23f3, 0x23f3], [0x25fd, 0x25fe],
+  [0x2614, 0x2615], [0x2648, 0x2653], [0x267f, 0x267f], [0x2693, 0x2693], [0x26a1, 0x26a1],
+  [0x26aa, 0x26ab], [0x26bd, 0x26be], [0x26c4, 0x26c5], [0x26ce, 0x26ce], [0x26d4, 0x26d4],
+  [0x26ea, 0x26ea], [0x26f2, 0x26f3], [0x26f5, 0x26f5], [0x26fa, 0x26fa], [0x26fd, 0x26fd],
+  [0x2705, 0x2705], [0x270a, 0x270b], [0x2728, 0x2728], [0x274c, 0x274c], [0x274e, 0x274e],
+  [0x2753, 0x2755], [0x2757, 0x2757], [0x2795, 0x2797], [0x27b0, 0x27b0], [0x27bf, 0x27bf],
+  [0x2b1b, 0x2b1c], [0x2b50, 0x2b50], [0x2b55, 0x2b55], [0x1f004, 0x1f004], [0x1f0cf, 0x1f0cf],
+  [0x1f18e, 0x1f18e], [0x1f191, 0x1f19a], [0x1f200, 0x1f2ff],
+]
 
-// A path's file name alone.
-const baseName = (path: string) => path.split(/[\\/]/).pop() ?? path
+// Terminal columns one character takes: two for wide ones (CJK, fullwidth,
+// emoji), none for combining marks and joiners.
+const charWidth = (ch: string) => {
+  const c = ch.codePointAt(0) ?? 0
+  // Marks of any script (accents, Thai and Hindi vowels and tones) ride on the character before.
+  if (/\p{M}/u.test(ch) || c === 0x200d || (c >= 0xfe00 && c <= 0xfe0f)) return 0
+  if (WIDE_SYMBOLS.some(([lo, hi]) => c >= lo && c <= hi)) return 2
+  const isWide =
+    (c >= 0x1100 && c <= 0x115f) ||
+    (c >= 0x2e80 && c <= 0xa4cf) ||
+    (c >= 0xac00 && c <= 0xd7a3) ||
+    (c >= 0xf900 && c <= 0xfaff) ||
+    (c >= 0xfe30 && c <= 0xfe4f) ||
+    (c >= 0xff00 && c <= 0xff60) ||
+    (c >= 0xffe0 && c <= 0xffe6) ||
+    (c >= 0x1f300 && c <= 0x1faff) ||
+    (c >= 0x20000 && c <= 0x3fffd)
+  return isWide ? 2 : 1
+}
+// `text` as what a terminal draws: each character with the marks that ride
+// on it (combining marks, joiners, variation selectors), and its columns.
+// A symbol followed by U+FE0F asks for its emoji form, two columns (⚠️).
+const glyphs = (text: string) => {
+  const out: { text: string; width: number }[] = []
+  for (const ch of text) {
+    const w = charWidth(ch)
+    const last = out.at(-1)
+    if (w === 0 && last) {
+      last.text += ch
+      if (ch === '️' && last.width === 1 && (last.text.codePointAt(0) ?? 0) >= 0x2000) last.width = 2
+    } else {
+      out.push({ text: ch, width: w })
+    }
+  }
+  return out
+}
+const textWidth = (text: string) => glyphs(text).reduce((w, g) => w + g.width, 0)
+
+// `text` padded with spaces to `width` columns.
+const padTo = (text: string, width: number) => text + ' '.repeat(Math.max(0, width - textWidth(text)))
+
+// `text` cut to at most `width` columns, ending in … when cut. It cuts
+// between whole characters, so an emoji is never split in half.
+const clip = (text: string, width: number) => {
+  if (textWidth(text) <= width) return text
+  let out = ''
+  let used = 0
+  for (const g of glyphs(text)) {
+    if (used + g.width > width - 1) break
+    out += g.text
+    used += g.width
+  }
+  return `${out}…`
+}
+
+// Text from tool inputs as one plain line: its first line only, terminal
+// escape sequences dropped and other control characters (which make the pane
+// refuse to draw) turned into spaces.
+const plainLine = (text: string) =>
+  (text.split(/\r\n|\r|\n/)[0] ?? '')
+    .replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, '')
+    .replace(/[\x00-\x1f\x7f-\x9f]/g, ' ')
+
+// A string field of a tool input or event as plain text, '' when missing.
+const plainOf = (value: unknown) => (typeof value === 'string' ? plainLine(value) : '')
+
+// A path's file name alone; a folder path ending in a slash gives its last folder.
+const baseName = (path: string) => path.replace(/[\\/]+$/, '').split(/[\\/]/).pop() || path
 
 // One spelling per file: forward slashes, and a Windows drive path (C:\...)
 // in lower case, since Windows paths ignore case.
@@ -176,37 +287,74 @@ const plural = (k: number, word: string) => `${k} ${word}${k === 1 ? '' : 's'}`
 // that only changes folder keeps the folder's name.
 const CD_PREFIX = /^\s*(?:cd|chdir|pushd|set-location|sl)\b(?:"[^"]*"|'[^']*'|[^"'&;|\n])*(?:&&|;|\n)\s*/i
 const CD_ONLY = /^\s*(?:cd|chdir|pushd|set-location|sl)\s+(?:\/d\s+)?["']?(.*?)["']?\s*$/i
+// A path in a command is cut to its last name, like a file tool's target,
+// when it is three or more names deep (C:\Users\me, ~/a/b, src/lib/x.ts).
+// A redirect or flag before it stays (2>, &>, --config=). Short paths
+// (/dev/null, origin/main, hooks/x.ts), URLs, globs, patterns and escapes
+// (s/a/b/g, "TODO\|FIXME", "\w+", 'a\tb') and quoted prose that is not a
+// path ("fix and/or tidy docs/api") stay as they are. A backslash separates
+// names only in a Windows path (C:\..., \\server\..., .\x); elsewhere it is
+// an escape.
+const SHELL_WORD = /"[^"]*"|'[^']*'|[^\s"']+/g
+const PATH_LEAD = /^(?:\d*>>?|&>>?|--?[\w-]+=)/
+// Brackets mark a pattern, and quotes inside a word mark code (`node -p
+// "require('./a/b/c.json')"`). Parentheses may sit in a folder's name
+// (`Program Files (x86)`, `app/(marketing)/`), but a last name holding one is
+// code (`open('a/b/c.csv').read()`), so that word stays whole too.
+const NOT_PATH = /[|[\]{}^$+*?'"`]|^[sy]\/|:\/\//
+const shortPath = (word: string) => {
+  const lead = PATH_LEAD.exec(word)?.[0] ?? ''
+  const rest = word.slice(lead.length)
+  const quote = /^["']/.test(rest) ? rest[0]! : ''
+  const inner = quote ? rest.slice(1, -1) : rest
+  if (NOT_PATH.test(inner) || /[()]/.test(inner.split(/[\\/]/).at(-1) ?? '')) return word
+  const isWindows = /^(?:[A-Za-z]:[\\/]|\\\\|\.{1,2}\\)/.test(inner)
+  const isAbsolute = isWindows || /^~?\//.test(inner)
+  if (!isAbsolute && /\s/.test(inner)) return word
+  if (!isWindows && inner.includes('\\')) return word
+  const parts = inner.split(isWindows ? /[\\/]+/ : /\/+/).filter(Boolean)
+  if (parts.length < 3) return word
+  const name = parts.at(-1)!
+  return lead + (/\s/.test(name) ? `${quote || '"'}${name}${quote || '"'}` : name)
+}
 const shellTarget = (command: string) => {
   let rest = command
   for (let m = CD_PREFIX.exec(rest); m && m[0].length < rest.length; m = CD_PREFIX.exec(rest)) {
     rest = rest.slice(m[0].length)
   }
   const only = CD_ONLY.exec(rest)
-  return only ? `cd ${baseName(only[1]!.replace(/[\\/]+$/, ''))}` : rest
+  return only ? `cd ${baseName(only[1]!.replace(/[\\/]+$/, ''))}` : rest.replace(SHELL_WORD, shortPath)
 }
 
 // What a tool call works on: the first naming field of its input, with a
-// path cut to its file name and one line of at most TARGET_MAX characters.
+// path cut to its file name and one plain line of at most TARGET_MAX columns.
 const targetOf = (input: Record<string, unknown>) => {
   for (const field of TARGET_FIELDS) {
     const value = input[field]
     if (typeof value !== 'string' || value === '') continue
-    const text = field.endsWith('path') ? baseName(value) : field === 'command' ? shellTarget(value) : value
-    return clip(text.split('\n')[0] ?? '', TARGET_MAX)
+    const text = plainLine(field.endsWith('path') ? baseName(value) : field === 'command' ? shellTarget(value) : value)
+    if (text.trim() === '') continue
+    return clip(text, TARGET_MAX)
   }
   return ''
 }
 
-// A tool's display name: MCP tools read as `server tool`, not mcp__server__tool.
+// A tool's display name: MCP tools read as `server tool name`, not
+// mcp__server__tool_name.
 const toolName = (name: string) =>
-  name.startsWith('mcp__') ? name.split('__').slice(1).join(' ') : name
+  name.startsWith('mcp__') ? name.split('__').slice(1).join(' ').replace(/_/g, ' ') : name
+
+// The same, short, for a dropdown line: an MCP tool by its own name alone
+// (`list issues`), so the target still fits.
+const shortTool = (name: string) =>
+  name.startsWith('mcp__') ? (name.split('__').at(-1) ?? name).replace(/_/g, ' ') : name
 
 // Steps from a plan or TodoWrite call: titles trimmed to one short line,
 // unknown statuses read as pending, at most MAX_STEPS kept.
 const toSteps = (raw: unknown, title: string, status: (s: unknown) => PlanStep['status']): PlanStep[] =>
   (Array.isArray(raw) ? raw : []).slice(0, MAX_STEPS).flatMap(item => {
     const step = item as Record<string, unknown> | null
-    const text = typeof step?.[title] === 'string' ? (step[title] as string).split('\n')[0]!.trim() : ''
+    const text = plainOf(step?.[title]).trim()
     if (text === '') return []
     return [{ title: clip(text, STEP_MAX), status: status(step?.status) }]
   })
@@ -226,6 +374,16 @@ const stepPercent = (s: PlanStep, t: Typical, now: number) =>
 // Percent of a whole plan: the mean of its steps' percents.
 const planPercent = (steps: PlanStep[], t: Typical, now: number) =>
   steps.length === 0 ? 0 : Math.round(steps.reduce((sum, s) => sum + stepPercent(s, t, now), 0) / steps.length)
+
+// The Claude bar's percent: real progress through a declared plan when there
+// is one (the mean of its steps' bars); otherwise the turn's estimate
+// (elapsed / its learned typical time, held below 100% until the turn ends).
+const mainPercent = (planSteps: PlanStep[], t: Typical, since: number | null, now: number) =>
+  planSteps.length > 0
+    ? planPercent(planSteps, t, now)
+    : since === null
+      ? 0
+      : Math.min(MAX_ESTIMATE, Math.floor(((now - since) / typicalMs(t, MAIN_KEY)) * 100))
 
 // Store a new plan, keeping each step's times from the last one (matched by
 // title): a step is timed from when it first left pending until it was done.
@@ -299,7 +457,7 @@ const touch = ($: EngineInterface, tool: string, input: Record<string, unknown>,
     if (old) {
       return old.isEdited || !isEdit ? list : list.map(f => (pathKey(f.path) === key ? { ...f, isEdited: true } : f))
     }
-    const file: TouchedFile = { path, name: baseName(path), isEdited: isEdit }
+    const file: TouchedFile = { path, name: plainLine(baseName(path)), isEdited: isEdit }
     const grown = [...list, file]
     if (grown.length <= MAX_FILES) return grown
     // Over the cap, the oldest file only read goes first, so edits stay listed.
@@ -308,14 +466,19 @@ const touch = ($: EngineInterface, tool: string, input: Record<string, unknown>,
   })
 }
 
-// Finish every active auto step, teaching each kind's typical time.
-const finishAuto = async ($: EngineInterface) => {
+// Finish every active auto step, teaching each kind's typical time. A tool
+// step whose call failed is marked so, and shows ✗ instead of ✓.
+const finishAuto = async ($: EngineInterface, isFailed = false) => {
   const steps = await read($, autoSteps)
   const active = steps.filter(s => s.status === 'active')
   if (active.length === 0) return
   const now = await $.clock.now()
   await update($, autoSteps, list =>
-    list.map(s => (s.status === 'active' ? { ...s, status: 'done' as const, endedAt: now } : s)),
+    list.map(s =>
+      s.status === 'active'
+        ? { ...s, status: 'done' as const, endedAt: now, isFailed: isFailed && s.kind === 'tool' ? true : undefined }
+        : s,
+    ),
   )
   for (const s of active) await learn($, stepKeyOf(s), now - (s.startedAt ?? now)).catch(() => {})
 }
@@ -330,7 +493,8 @@ const startAuto = async ($: EngineInterface, kind: 'tool' | 'think', key: string
   await update($, autoSteps, list => {
     const last = list.at(-1)
     if (last?.key === key) {
-      const merged = { ...last, status: 'active' as const, startedAt: now, endedAt: undefined, count: (last.count ?? 1) + 1 }
+      const count = (last.count ?? 1) + 1
+      const merged = { ...last, status: 'active' as const, startedAt: now, endedAt: undefined, isFailed: undefined, count }
       return [...list.slice(0, -1), merged]
     }
     return [...list, { title, status: 'active' as const, kind, key, startedAt: now }].slice(-MAX_STEPS)
@@ -368,14 +532,20 @@ const percent = (r: Run, t: Typical, now: number) => {
 }
 
 // Fold one finished run's duration into the averages, in state and store.
+// Other sessions learn into the same store at the same time, so the store is
+// read fresh and only this type's average changes in it.
 const learn = async ($: EngineInterface, type: string, ms: number) => {
+  const raw = await $.store.get(STORE_KEY).catch(() => undefined)
+  const stored = raw && typeof raw === 'object' ? (raw as Typical) : {}
   await update($, typical, t => {
-    const old = t[type]
+    const merged = { ...t, ...stored }
+    const old = merged[type]
     const n = Math.min((old?.n ?? 0) + 1, LEARN_WINDOW)
     const avgMs = old ? old.avgMs + (ms - old.avgMs) / n : ms
-    return { ...t, [type]: { avgMs, n } }
+    return { ...merged, [type]: { avgMs, n } }
   })
-  await $.store.set(STORE_KEY, await read($, typical))
+  const mine = (await read($, typical))[type]
+  await $.store.set(STORE_KEY, { ...stored, [type]: mine })
 }
 
 // Next palette slot after the newest agent's, so neighbours never match.
@@ -401,8 +571,8 @@ const discoverAgents = async ($: EngineInterface, agents: readonly AgentInfo[], 
       added.push({
         id: `agent-${a.id}`,
         kind: 'agent',
-        name: a.type || 'agent',
-        detail: a.description,
+        name: plainOf(a.type) || 'agent',
+        detail: plainOf(a.description),
         status: 'running',
         startedAt: now,
         tools: 0,
@@ -448,9 +618,10 @@ const pollAgents = async ($: EngineInterface) => {
   for (const r of finished) await learn($, r.name, now - r.startedAt)
 }
 
-// A token count in a few characters: 950, 12.3k, 4.1M.
+// A token count in a few characters: 950, 12.3k, 4.1M. Counts that would
+// round up to 1000.0k read as millions.
 const tokens = (n: number) =>
-  n < 1_000 ? String(n) : n < 1_000_000 ? `${(n / 1_000).toFixed(1)}k` : `${(n / 1_000_000).toFixed(1)}M`
+  n < 1_000 ? String(n) : n < 999_950 ? `${(n / 1_000).toFixed(1)}k` : `${(n / 1_000_000).toFixed(1)}M`
 
 // Time left until a window resets: 3d 4h, 2h 14m, 9m.
 const until = (ms: number) => {
@@ -502,6 +673,100 @@ const countTokens = ($: EngineInterface, u: ModelUsage) => {
   }
   weekChain = weekChain.then(run, run)
   return weekChain
+}
+
+// Whether two sessions work in the same project: the same folder, or one
+// A session's project is its repository's main root (the same for each
+// worktree) or its folder, so two match only when those are one folder; a
+// session started in / or a home folder does not take in every other.
+const sameProject = (a: string, b: string) => pathKey(a).replace(/\/+$/, '') === pathKey(b).replace(/\/+$/, '')
+
+// A peer read back from the store, or undefined when it is not one.
+const toPeer = (raw: unknown): Peer | undefined => {
+  const p = raw as Partial<Peer> | null
+  if (!p || typeof p !== 'object' || typeof p.id !== 'string' || typeof p.cwd !== 'string') return undefined
+  if (typeof p.updatedAt !== 'number') return undefined
+  const states: Peer['state'][] = ['working', 'waiting', 'done', 'failed', 'idle']
+  return {
+    id: p.id,
+    cwd: p.cwd,
+    task: plainOf(p.task),
+    state: states.includes(p.state as Peer['state']) ? (p.state as Peer['state']) : 'idle',
+    activity: plainOf(p.activity),
+    percent: typeof p.percent === 'number' ? Math.max(0, Math.min(100, Math.round(p.percent))) : 0,
+    updatedAt: p.updatedAt,
+  }
+}
+
+// Publish this session's status for the other sessions, when it changed or
+// the heartbeat is due, then read theirs: the fresh ones in the same project
+// become the Sessions list, and long-silent ones are removed from the store.
+// It runs at most once per SHARE_MS of clock time, however many ticks come;
+// a clock that went back (a new session in this process) starts over.
+let lastShared = ''
+let lastSharedAt = 0
+let lastCheckedAt = 0
+const shareStatus = async ($: EngineInterface) => {
+  const me = await read($, self)
+  if (me === null) return
+  const now = await $.clock.now()
+  if (now >= lastCheckedAt && now - lastCheckedAt < SHARE_MS) return
+  lastCheckedAt = now
+  const [since, m, s, planNow, learned, list] = await Promise.all([
+    read($, busySince),
+    read($, main),
+    read($, summary),
+    read($, plan),
+    read($, typical),
+    read($, runs),
+  ])
+  // Agents still running after the turn ended keep the session working, at
+  // their mean percent.
+  const running = list.filter(r => r.kind === 'agent' && r.status === 'running')
+  const isAgentsOnly = since === null && running.length > 0
+  const state: Peer['state'] =
+    since !== null
+      ? m.mood === 'ask' ? 'waiting' : 'working'
+      : isAgentsOnly ? 'working' : s === null || s.isAborted ? 'idle' : s.isFailed ? 'failed' : 'done'
+  const agentsPercent = Math.round(running.reduce((sum, r) => sum + percent(r, learned, now), 0) / Math.max(1, running.length))
+  const mine: Peer = {
+    id: me.id,
+    cwd: me.cwd,
+    task: me.task,
+    state,
+    activity: isAgentsOnly ? `${plural(running.length, 'agent')} working` : state === 'working' ? m.activity : '',
+    percent: isAgentsOnly ? agentsPercent : state === 'done' ? 100 : mainPercent(planNow, learned, since, now),
+    updatedAt: now,
+  }
+  const shape = JSON.stringify({ ...mine, updatedAt: 0 })
+  if (shape !== lastShared || now - lastSharedAt >= HEARTBEAT_MS || now < lastSharedAt) {
+    await $.store.set(`${PEER_PREFIX}${me.id}`, mine)
+    lastShared = shape
+    lastSharedAt = now
+  }
+
+  const found: Peer[] = []
+  for (const key of await $.store.keys()) {
+    if (!key.startsWith(PEER_PREFIX) || key === `${PEER_PREFIX}${me.id}`) continue
+    const peer = toPeer(await $.store.get(key).catch(() => undefined))
+    if (peer === undefined || now - peer.updatedAt > PEER_FORGET_MS) {
+      await $.store.delete(key).catch(() => {})
+      continue
+    }
+    if (now - peer.updatedAt <= PEER_STALE_MS && sameProject(peer.cwd, me.cwd)) found.push(peer)
+  }
+  // Sessions that need the person or are working come first, so they are
+  // never the ones folded into "+N more".
+  const rank: Record<Peer['state'], number> = { waiting: 0, working: 1, failed: 2, done: 3, idle: 4 }
+  found.sort((a, b) => rank[a.state] - rank[b.state] || a.id.localeCompare(b.id))
+  const before = await read($, peers)
+  const seen = (l: readonly Peer[]) => JSON.stringify(l.map(p => ({ ...p, updatedAt: 0 })))
+  if (seen(before) !== seen(found)) await update($, peers, () => found)
+
+  // The week's tokens move with every session's turns: follow the store.
+  const week = await savedWeek($, now)
+  const weekTokens = week?.tokens ?? 0
+  if ((await read($, usage)).weekTokens !== weekTokens) await update($, usage, u => ({ ...u, weekTokens }))
 }
 
 // ---------------------------------------------------------------- mascot
@@ -650,6 +915,14 @@ export const register: Register = on => {
     const week = await savedWeek($, await $.clock.now())
     await update($, usage, u => ({ ...u, weekTokens: week?.tokens ?? 0 }))
 
+    // Who this session is, for the other sessions' Sessions lists. Its
+    // project is its git repository's main root (the same for every worktree),
+    // else its folder.
+    const sessionId = await $.session.id().catch(() => undefined)
+    const repo = await $.session.repo().catch(() => null)
+    const project = repo?.root ?? e.cwd
+    if (sessionId) await update($, self, old => ({ id: sessionId, cwd: project, task: old?.task ?? '' }))
+
     // One ticker for the whole session: animates while busy and polls agent
     // status. Module variables reset on reload; the timer restarts with it.
     let tick = 0
@@ -666,6 +939,9 @@ export const register: Register = on => {
         // Every second while agents run; every couple of seconds otherwise, to
         // find agents that start with no agent.spawn.
         if ((hasRunningAgent && tick % POLL_EVERY === 0) || tick % DISCOVER_EVERY === 0) await pollAgents($)
+        // Swap statuses with the other sessions in this project, checked about
+        // once a second (it shares at most every SHARE_MS).
+        if (tick % POLL_EVERY === 1) await shareStatus($).catch(() => {})
         const isActive = isTurnBusy || hasRunningAgent
         // Clawd's cheer after a turn, and a frame or two more to settle back.
         const isCheering = !isActive && isCheerAt(await read($, summary), await $.clock.now(), 2 * TICK_MS)
@@ -695,9 +971,14 @@ export const register: Register = on => {
 
   // A prompt the person sends is a new task: finished agents and skills are
   // cleared so every bar starts over, while agents still running carry on.
-  // Agent-finished notifications start turns without a prompt, so they don't
-  // clear a row the moment it reaches 100%.
+  // Background-task notices, other sessions' messages and other engine-queued
+  // turns come through here too; they are not a new task, so they clear
+  // nothing (an agent's row stays at 100%) and don't rename the session.
   on('prompt.submit', async ($, e, next) => {
+    // A plugin's prompt counts when it carries the person's own words (`asUser`).
+    const origin = e.origin as { kind?: string; asUser?: true } | undefined
+    const isPerson = PERSON_ORIGINS.has(origin?.kind ?? 'composer') || (origin?.kind === 'plugin' && origin.asUser === true)
+    if (e.isMeta || !isPerson) return next(e)
     await update($, runs, list => list.filter(r => r.status === 'running'))
     const live = new Set((await read($, runs)).map(r => r.id))
     await update($, expanded, ids => ids.filter(id => live.has(id)))
@@ -707,8 +988,41 @@ export const register: Register = on => {
     await update($, feedCount, () => 0)
     await update($, files, () => [])
     await update($, summary, () => null)
+    // The other sessions list this one by what the person asked it last.
+    const task = clip(plainOf(e.text).trim(), TASK_MAX)
+    if (task !== '') await update($, self, me => (me === null ? me : { ...me, task }))
     return next(e)
     // The tracker only observes: if its bookkeeping fails, the prompt still goes.
+  }).catch(($, e, next) => next(e))
+
+  // A session that ends takes itself off the other sessions' lists. After
+  // /clear the process goes on as a new session with no session.start, so
+  // what the old one did is cleared here and the new id is looked up again.
+  on('session.end', async ($, e, next) => {
+    // Unset first, so the ticker never publishes the ended session again.
+    const me = await read($, self)
+    await update($, self, () => null)
+    if (me !== null) await $.store.delete(`${PEER_PREFIX}${me.id}`).catch(() => {})
+    await update($, runs, () => [])
+    await update($, expanded, () => [])
+    await update($, plan, () => [])
+    await update($, autoSteps, () => [])
+    await update($, feed, () => [])
+    await update($, feedCount, () => 0)
+    await update($, files, () => [])
+    await update($, summary, () => null)
+    await update($, busySince, () => null)
+    await update($, main, () => IDLE_MAIN)
+    await update($, usage, u => ({ ...u, sessionTokens: 0, usd: undefined }))
+    const out = await next(e)
+    // A new id means the process goes on as a new session (/clear): it reports
+    // again under that id. Guarded: a throw here would reach the .catch, which
+    // ends the session again.
+    await $.session
+      .id()
+      .then(id => (me !== null && id && id !== me.id ? update($, self, () => ({ ...me, id, task: '' })) : undefined))
+      .catch(() => {})
+    return out
   }).catch(($, e, next) => next(e))
 
   // Ask Claude, in its system prompt, to keep the plan tool up to date.
@@ -824,8 +1138,8 @@ export const register: Register = on => {
       const kind = c.kind === 'tool' ? `tool:${c.name}` : c.kind === 'text' || c.kind === 'thinking' ? c.kind : last
       if (kind !== last) {
         last = kind
-        const activity =
-          c.kind === 'tool' ? `getting ready: ${toolName(c.name)}…` : kind === 'text' ? 'writing reply…' : 'thinking…'
+        // A tool about to run reads as what it will do (`Reading…`), before its target is known.
+        const activity = c.kind === 'tool' ? `${doingTitle(c.name, '')}…` : kind === 'text' ? 'writing reply…' : 'thinking…'
         // Clawd picks up the tool's prop as soon as the call starts streaming.
         const mood: Mood = c.kind === 'tool' ? moodOf(c.name) : kind === 'text' ? 'write' : 'think'
         void setActivity($, activity, mood).catch(() => {})
@@ -856,7 +1170,7 @@ export const register: Register = on => {
       // Nothing after the call may throw: the hook's catch would run it again.
       const isFailed = ran.deny !== undefined || ran.isError === true
       const endedAt = await $.clock.now().catch(() => startedAt)
-      await finishAuto($).catch(() => {})
+      await finishAuto($, isFailed).catch(() => {})
       await patchFeed($, id, { status: isFailed ? 'failed' : 'done', endedAt }).catch(() => {})
       if (isFailed) await update($, main, m => ({ ...m, failed: (m.failed ?? 0) + 1, failedAt: endedAt })).catch(() => {})
       else await touch($, e.tool, input, true).catch(() => {})
@@ -892,7 +1206,7 @@ export const register: Register = on => {
     await add($, {
       id,
       kind: 'skill',
-      name: e.skill,
+      name: plainOf(e.skill) || 'skill',
       detail: '',
       status: 'running',
       startedAt: now,
@@ -910,16 +1224,47 @@ export const register: Register = on => {
     // The tracker only observes: if its bookkeeping fails, let the call through.
   }).catch(($, e, next) => next(e))
 
-  // Agents: recorded as the spawn starts; the ticker keeps their status.
+  // Skills the person runs as /name, or that load another way: the engine
+  // expands their prompt. One the Skill tool loads already has its row.
+  on('skill.prompt', async ($, e, next) => {
+    const name = plainOf(e.skill) || 'skill'
+    const isListed = (await read($, runs)).some(r => r.kind === 'skill' && r.status === 'running' && r.name === name)
+    if (!isListed) {
+      const now = await $.clock.now()
+      await add($, { id: `skill-${name}-${now}`, kind: 'skill', name, detail: '', status: 'running', startedAt: now })
+    }
+    return next(e)
+    // The tracker only observes: if its bookkeeping fails, the skill still loads.
+  }).catch(($, e, next) => next(e))
+
+  // Agents: recorded as the spawn starts; the ticker keeps their status. A
+  // resumed agent (a follow-up message) is its own row again, running. Each
+  // agent of a workflow run shares the Workflow call's id, so its place in
+  // the run tells the rows apart.
   on('agent.spawn', async ($, e, next) => {
     const now = await $.clock.now()
-    const id = e.tool_use_id
+    const resumed = e.resume?.agentId
+    if (resumed && (await read($, runs)).some(r => r.kind === 'agent' && r.agentId === resumed)) {
+      // Timed from the resume, not across the idle time before it. A follow-up
+      // is not a whole run, so it teaches no typical time.
+      await patch($, r => r.kind === 'agent' && r.agentId === resumed, {
+        status: 'running',
+        startedAt: now,
+        endedAt: undefined,
+        isLearned: true,
+      })
+      return next(e)
+    }
+    const base = e.workflow ? `${e.tool_use_id}:${e.workflow.runId}:${e.workflow.agentIndex}` : e.tool_use_id
+    const taken = new Set((await read($, runs)).map(r => r.id))
+    let id = base
+    for (let k = 2; taken.has(id); k++) id = `${base}#${k}`
     await update($, runs, list => {
       const run: Run = {
         id,
         kind: 'agent',
-        name: e.subagentType || 'agent',
-        detail: e.description,
+        name: plainOf(e.subagentType) || 'agent',
+        detail: plainOf(e.description),
         status: 'running',
         startedAt: now,
         tools: 0,
@@ -961,13 +1306,14 @@ export const register: Register = on => {
     const agents = list.filter(r => r.kind === 'agent')
     const skills = list.filter(r => r.kind === 'skill')
     const runningAgents = agents.filter(r => r.status === 'running').length
-    const [mainNow, feedNow, feedTotal, filesNow, summaryNow, usageNow] = await Promise.all([
+    const [mainNow, feedNow, feedTotal, filesNow, summaryNow, usageNow, peersNow] = await Promise.all([
       read($, main),
       read($, feed),
       read($, feedCount),
       read($, files),
       read($, summary),
       read($, usage),
+      read($, peers),
     ])
 
     // Clawd's look: while a turn runs, the kind of work in hand (or a call
@@ -1015,9 +1361,24 @@ export const register: Register = on => {
     // The Done line and a spacer, in the Claude bar's place while idle.
     const isSummaryShown = since === null && summaryNow !== null
     const summaryRows = isSummaryShown ? 2 : 0
+    // Sessions: heading, a line per session (two while it works), a count of
+    // the ones not shown, and a spacer.
+    const peersShown = peersNow.slice(0, SHOWN_PEERS)
+    const hiddenPeers = peersNow.length - peersShown.length
+    const peerLines = (p: Peer) => (p.state === 'working' && p.activity !== '' ? 2 : 1)
+    const sessionsRows =
+      peersShown.length > 0 ? 2 + peersShown.reduce((k, p) => k + peerLines(p), 0) + (hiddenPeers > 0 ? 1 : 0) : 0
     const room = Math.max(
       3,
-      bodyRows - 8 - (since !== null ? 3 : 0) - planRows - usageRows - feedRows - filesRows - summaryRows,
+      bodyRows -
+        8 -
+        (since !== null ? 3 : 0) -
+        planRows -
+        usageRows -
+        feedRows -
+        filesRows -
+        summaryRows -
+        sessionsRows,
     )
     const agentBudget = Math.max(2, Math.floor(room * 0.7))
     // Every running agent always shows: it is live work, so it is never hidden
@@ -1069,7 +1430,11 @@ export const register: Register = on => {
     const agentRow = (r: Run) => {
       const pct = percent(r, learned, now)
       const color = r.status === 'failed' ? 'error' : PALETTE[(r.hue ?? 0) % PALETTE.length]
-      const track = barWidth - RUNNER[0]!.length
+      const time = clock((r.endedAt ?? now) - r.startedAt)
+      const tools = plural(r.tools ?? 0, 'tool')
+      // The bar takes what the line leaves after indent, percent, time and tools.
+      const width = Math.max(RUNNER[0]!.length + 3, Math.min(barWidth, columns - 9 - `  ${time} · ${tools}`.length))
+      const track = width - RUNNER[0]!.length
       const filled = Math.round((pct / 100) * track)
       // Offset each agent's blink by its color slot so they don't blink in sync.
       const isBlink = (n + (r.hue ?? 0) * 5) % BLINK_EVERY === BLINK_EVERY - 1
@@ -1077,13 +1442,11 @@ export const register: Register = on => {
         r.status === 'running'
           ? isBlink ? RUNNER_BLINK : RUNNER[n % RUNNER.length]
           : r.status === 'done' ? RUNNER_DONE : RUNNER_FAILED
-      const time = clock((r.endedAt ?? now) - r.startedAt)
-      const tools = `${r.tools ?? 0} tool${r.tools === 1 ? '' : 's'}`
       const isOpen = open.includes(r.id)
-      // A Button cannot truncate, so cut the task description to fit.
-      const detailRoom = Math.max(0, columns - r.name.length - 8)
-      const detail =
-        r.detail.length > detailRoom ? `${r.detail.slice(0, Math.max(0, detailRoom - 1))}…` : r.detail
+      // A Button cannot truncate, so cut the type and the task to fit, by columns.
+      const name = clip(r.name, columns - 5)
+      const detailRoom = columns - 7 - textWidth(name)
+      const detail = detailRoom >= 4 ? clip(r.detail ?? '', detailRoom) : ''
       const toggle = () =>
         update($, expanded, ids => (ids.includes(r.id) ? ids.filter(id => id !== r.id) : [...ids, r.id]))
       const calls = (r.calls ?? []).slice(-SHOWN_CALLS)
@@ -1092,7 +1455,7 @@ export const register: Register = on => {
           <Button key={`agent-${r.id}`} plain onPress={toggle}>
             {isOpen ? '▾ ' : '▸ '}
             <Text color={r.status === 'running' ? color : colorOf(r)}>{`${glyphOf(r)} `}</Text>
-            {r.name}
+            {name}
             <Text dimColor>{detail ? `  ${detail}` : ''}</Text>
           </Button>
           <Text wrap="truncate-end">
@@ -1111,7 +1474,7 @@ export const register: Register = on => {
                 <Text color={c.status === 'failed' ? 'error' : c.status === 'running' ? color : 'success'}>
                   {c.status === 'running' ? SPIN[n % SPIN.length] : c.status === 'done' ? '✓' : '✗'}
                 </Text>
-                {` ${c.tool.padEnd(6)} ${c.target}`}
+                {` ${shortTool(c.tool).padEnd(6)} ${c.target}`}
                 <Text dimColor>{c.endedAt === undefined ? '' : `  ${short(c.endedAt - c.startedAt)}`}</Text>
               </Text>
             ))}
@@ -1119,27 +1482,23 @@ export const register: Register = on => {
       )
     }
 
-    const skillRow = (r: Run) => (
-      <Text
-        wrap="truncate-end"
-        dimColor={r.status === 'done'}
-        color={r.status === 'failed' ? 'error' : r.status === 'running' ? ORANGE : undefined}
-      >
-        {` ${glyphOf(r)} ${r.name}  ${clock((r.endedAt ?? now) - r.startedAt)}`}
-      </Text>
-    )
+    // Skill: status, name (cut so its time still shows) and time.
+    const skillRow = (r: Run) => {
+      const time = clock((r.endedAt ?? now) - r.startedAt)
+      return (
+        <Text
+          wrap="truncate-end"
+          dimColor={r.status === 'done'}
+          color={r.status === 'failed' ? 'error' : r.status === 'running' ? ORANGE : undefined}
+        >
+          {` ${glyphOf(r)} ${clip(r.name, Math.max(8, columns - 5 - time.length))}  ${time}`}
+        </Text>
+      )
+    }
 
-    // Claude: real progress through the plan Claude declared when there is
-    // one (the mean of its steps' bars); otherwise the turn's estimate
-    // (elapsed / its learned typical time, held below 100% until the turn
-    // ends). A mini Clawd runs at the head, and what Claude is doing right
-    // now shows beneath.
-    const mainPct =
-      planNow.length > 0
-        ? planPercent(planNow, learned, now)
-        : since === null
-          ? 0
-          : Math.min(MAX_ESTIMATE, Math.floor(((now - since) / typicalMs(learned, MAIN_KEY)) * 100))
+    // Claude: the turn's progress, with a mini Clawd running at the head and
+    // what Claude is doing right now beneath.
+    const mainPct = mainPercent(planNow, learned, since, now)
     const mainWidth = Math.max(14, Math.min(40, columns - 28))
 
     // Plan: each step's title gets the whole line, so it reads in a narrow
@@ -1148,15 +1507,21 @@ export const register: Register = on => {
     const titleWidth = Math.max(8, columns - 4)
     const stepWidth = Math.max(RUNNER[0]!.length + 3, Math.min(28, columns - 18))
     const stepRow = (s: PlanStep) => {
-      const full = s.count !== undefined && s.count > 1 ? `${s.title} ×${s.count}` : s.title
+      // A merged step's ×N stays when its title is cut.
+      const times = s.count !== undefined && s.count > 1 ? ` ×${s.count}` : ''
+      const title = `${clip(s.title, titleWidth - times.length)}${times}`
       const isActive = s.status === 'active'
+      const isFailed = s.status === 'done' && s.isFailed === true
       const head = (
         <Text wrap="truncate-end">
           {'  '}
-          <Text color={s.status === 'done' ? 'success' : isActive ? HOT : undefined} dimColor={s.status === 'pending'}>
-            {s.status === 'done' ? '✓' : isActive ? SPIN[n % SPIN.length] : '○'}
+          <Text
+            color={isFailed ? 'error' : s.status === 'done' ? 'success' : isActive ? HOT : undefined}
+            dimColor={s.status === 'pending'}
+          >
+            {isFailed ? '✗' : s.status === 'done' ? '✓' : isActive ? SPIN[n % SPIN.length] : '○'}
           </Text>
-          <Text dimColor={!isActive}>{` ${clip(full, titleWidth)}`}</Text>
+          <Text dimColor={!isActive}>{` ${title}`}</Text>
         </Text>
       )
       if (!isActive) return head
@@ -1211,12 +1576,17 @@ export const register: Register = on => {
 
     // Usage: each rate-limit window's bar, how much is used and when it
     // resets; then the tokens this session and this week, and the cost.
-    const limitWidth = Math.max(8, Math.min(24, columns - 34))
+    // The bars share one width: what the longest reset time leaves of the line.
+    const resetText = (l: Limit) => {
+      const left = l.resetsAt === undefined ? NaN : Date.parse(l.resetsAt) - now
+      return Number.isNaN(left) ? '' : `  resets in ${until(left)}`
+    }
+    const longestReset = Math.max(0, ...usageNow.limits.map(l => resetText(l).length))
+    const limitWidth = Math.max(6, Math.min(24, columns - 15 - longestReset))
     const limitRow = (l: Limit) => {
       const pct = Math.round(l.percentUsed)
       const filled = Math.round((Math.min(100, Math.max(0, pct)) / 100) * limitWidth)
       const color = pct >= ALERT_AT ? 'error' : pct >= WARN_AT ? 'warning' : 'success'
-      const left = l.resetsAt === undefined ? NaN : Date.parse(l.resetsAt) - now
       const name = (LIMIT_NAMES[l.kind] ?? l.kind).slice(0, 8).padEnd(8)
       return (
         <Text wrap="truncate-end">
@@ -1224,10 +1594,19 @@ export const register: Register = on => {
           <Text color={color}>{'━'.repeat(filled)}</Text>
           <Text dimColor>{'─'.repeat(limitWidth - filled)}</Text>
           <Text color={pct >= WARN_AT ? color : undefined}>{` ${String(pct).padStart(3)}%`}</Text>
-          <Text dimColor>{Number.isNaN(left) ? '' : `  resets in ${until(left)}`}</Text>
+          <Text dimColor>{resetText(l)}</Text>
         </Text>
       )
     }
+    // Tokens: in the longest words that fit beside the cost, so it shows.
+    const cost = usageNow.usd === undefined ? '' : ` · $${usageNow.usd.toFixed(2)}`
+    const [sessionText, weekText] = [tokens(usageNow.sessionTokens), tokens(usageNow.weekTokens)]
+    const tokenForms = [
+      `${sessionText} session · ${weekText} week`,
+      `${sessionText} sess · ${weekText} wk`,
+      `${sessionText} · ${weekText} wk`,
+    ]
+    const tokensText = tokenForms.find(f => 10 + f.length + cost.length <= columns) ?? tokenForms.at(-1)!
     const usageRowsShown = (
       <Box flexDirection="column">
         <Text bold>Usage</Text>
@@ -1238,8 +1617,8 @@ export const register: Register = on => {
         )}
         <Text wrap="truncate-end">
           <Text bold>{' Tokens   '}</Text>
-          {`${tokens(usageNow.sessionTokens)} session · ${tokens(usageNow.weekTokens)} week`}
-          <Text dimColor>{usageNow.usd === undefined ? '' : ` · $${usageNow.usd.toFixed(2)}`}</Text>
+          {tokensText}
+          <Text dimColor>{cost}</Text>
         </Text>
         <Text> </Text>
       </Box>
@@ -1249,7 +1628,7 @@ export const register: Register = on => {
     // its kind's icon (✗ once failed), what it did and how long it took.
     const feedTitleWidth = Math.max(8, columns - 12)
     const feedRow = (f: FeedItem) => {
-      const title = clip(f.title, feedTitleWidth).padEnd(feedTitleWidth)
+      const title = padTo(clip(f.title, feedTitleWidth), feedTitleWidth)
       return (
         <Text wrap="truncate-end">
           {'  '}
@@ -1279,7 +1658,7 @@ export const register: Register = on => {
     const packed: TouchedFile[] = []
     let packedWidth = 0
     for (const f of [...edited, ...readOnly]) {
-      const width = f.name.length + 4
+      const width = textWidth(f.name) + 4
       const more = filesNow.length - packed.length - 1 > 0 ? 3 : 0
       if (packed.length > 0 && packedWidth + width + more > fileRoom) break
       packed.push(f)
@@ -1305,26 +1684,87 @@ export const register: Register = on => {
       : summaryNow?.isFailed
         ? { word: ' Failed   ', color: 'error', mark: '✗ ' }
         : { word: ' Done     ', color: 'success', mark: '✓ ' }
+    // What fits goes in: failed calls always first, then the files and tools
+    // in the longest words that fit together (`2 files edited` or `2 edited`),
+    // else as many of them as fit; they show in reading order.
+    const doneParts = (() => {
+      if (!summaryNow) return { files: '', tools: '', failed: '' }
+      const part = (s: string) => (s === '' ? '' : ` · ${s}`)
+      let room = columns - ending.word.length - ending.mark.length - clock(summaryNow.durationMs).length
+      const failed = summaryNow.failed > 0 && part(`${summaryNow.failed} failed`).length <= room
+        ? part(`${summaryNow.failed} failed`)
+        : ''
+      room -= failed.length
+      const [many, word] = edited.length > 0 ? [edited.length, 'edited'] : [readOnly.length, 'read']
+      const fileForms = many > 0 ? [part(`${plural(many, 'file')} ${word}`), part(`${many} ${word}`)] : ['']
+      const tools = part(plural(summaryNow.tools, 'tool'))
+      const choices = [
+        ...fileForms.map(files => ({ files, tools })),
+        ...fileForms.map(files => ({ files, tools: '' })),
+        { files: '', tools },
+      ]
+      const pick = choices.find(c => c.files.length + c.tools.length <= room) ?? { files: '', tools: '' }
+      return { ...pick, failed }
+    })()
     const summaryRow = summaryNow && (
       <Text wrap="truncate-end">
         <Text bold>{ending.word}</Text>
         <Text color={ending.color}>{ending.mark}</Text>
         {clock(summaryNow.durationMs)}
-        <Text dimColor>
-          {[
-            edited.length > 0
-              ? `${plural(edited.length, 'file')} edited`
-              : readOnly.length > 0
-                ? `${plural(readOnly.length, 'file')} read`
-                : '',
-            plural(summaryNow.tools, 'tool'),
-          ]
-            .filter(s => s !== '')
-            .map(s => ` · ${s}`)
-            .join('')}
-        </Text>
-        <Text color="error">{summaryNow.failed > 0 ? ` · ${summaryNow.failed} failed` : ''}</Text>
+        <Text dimColor>{`${doneParts.files}${doneParts.tools}`}</Text>
+        <Text color="error">{doneParts.failed}</Text>
       </Text>
+    )
+
+    // Sessions: the other sessions in this project, each with what it was
+    // asked, its state and percent, and what it is doing while it works.
+    const PEER_LOOK: Record<Peer['state'], { mark: string; color?: string }> = {
+      working: { mark: SPIN[n % SPIN.length]!, color: HOT },
+      waiting: { mark: '?', color: 'warning' },
+      done: { mark: '✓', color: 'success' },
+      failed: { mark: '✗', color: 'error' },
+      idle: { mark: '○' },
+    }
+    const peerRow = (p: Peer) => {
+      const pct = ` ${String(p.percent).padStart(3)}%`
+      const isLive = p.state === 'working' || p.state === 'waiting'
+      const taskRoom = Math.max(8, columns - 4 - (isLive ? pct.length : 0))
+      const task = clip(p.task || 'new session', taskRoom)
+      return (
+        <Box flexDirection="column">
+          <Text wrap="truncate-end">
+            {'  '}
+            <Text color={PEER_LOOK[p.state].color} dimColor={p.state === 'idle'}>
+              {PEER_LOOK[p.state].mark}
+            </Text>
+            <Text dimColor={!isLive}>{` ${isLive ? padTo(task, taskRoom) : task}`}</Text>
+            {isLive && <Text color={PEER_LOOK[p.state].color}>{pct}</Text>}
+          </Text>
+          {peerLines(p) === 2 && (
+            <Text wrap="truncate-end" dimColor>
+              {`    ${clip(p.activity, Math.max(4, columns - 4))}`}
+            </Text>
+          )}
+        </Box>
+      )
+    }
+    const peersWorking = peersNow.filter(p => p.state === 'working' || p.state === 'waiting').length
+    // The rest by what they came to: "· 1 failed · 2 done · 1 idle", those there are.
+    const sessionCounts = (['failed', 'done', 'idle'] as const)
+      .map(state => [state, peersNow.filter(p => p.state === state).length] as const)
+      .filter(([, k]) => k > 0)
+      .map(([state, k]) => ` · ${k} ${state}`)
+      .join('')
+    const sessionsRowsShown = (
+      <Box flexDirection="column">
+        <Text wrap="truncate-end">
+          <Text bold>Sessions</Text>
+          <Text dimColor>{`   ${peersWorking} working${sessionCounts}`}</Text>
+        </Text>
+        {peersShown.map(peerRow)}
+        {hiddenPeers > 0 && <Text dimColor>{` +${hiddenPeers} more`}</Text>}
+        <Text> </Text>
+      </Box>
     )
 
     const art = mascot(n, look)
@@ -1362,6 +1802,7 @@ export const register: Register = on => {
         {feedShown.length > 0 && feedRowsShown}
         {filesNow.length > 0 && filesRow}
         {(since !== null || stepsNow.length > 0 || isSummaryShown || filesNow.length > 0) && <Text> </Text>}
+        {peersShown.length > 0 && sessionsRowsShown}
         <Text wrap="truncate-end">
           <Text bold>Agents</Text>
           <Text dimColor>
@@ -1380,7 +1821,11 @@ export const register: Register = on => {
         {skills.length === 0 ? (
           <Text dimColor> none yet</Text>
         ) : (
-          skills.slice(-skillRoom).map(skillRow)
+          // The newest that fit; a last line counts the older ones that do not.
+          skills.slice(-(skills.length > skillRoom ? Math.max(1, skillRoom - 1) : skillRoom)).map(skillRow)
+        )}
+        {skills.length > skillRoom && (
+          <Text dimColor>{` +${skills.length - Math.max(1, skillRoom - 1)} more`}</Text>
         )}
       </Box>
     )
