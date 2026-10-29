@@ -280,12 +280,12 @@ test('each plan step has its own bar and they drive the Claude bar', async ($, o
   await clock.set(1_000 + 15_000)
   let ui = await $.ui.mount(PANE)
   expect((await ui.find({ type: 'Text', text: /^ Plan / }))?.text).toMatch(/1\/4 steps done/)
-  expect((await ui.find({ type: 'Text', text: /Read the code/ }))?.text).toMatch(/✓ Read the code\s+━+\s+100%$/)
-  // At 40 columns a long title is cut to fit beside its bar.
-  const active = (await ui.find({ type: 'Text', text: /Add the plan…/ }))?.text
-  expect(active).toMatch(/▛█▜|▜█▛/)
-  expect(active).toMatch(/ 50%$/)
-  expect((await ui.find({ type: 'Text', text: /Write tests/ }))?.text).toMatch(/○ Write tests\s+─+\s+0%$/)
+  expect((await ui.find({ type: 'Text', text: /Read the code/ }))?.text).toMatch(/^  ✓ Read the code$/)
+  // At 40 columns a title still shows whole; the active step's bar is beneath it.
+  expect((await ui.find({ type: 'Text', text: /Add the plan tool/ }))?.text).toMatch(/Add the plan tool$/)
+  const bar = (await ui.find({ type: 'Text', text: /^ {4}━*(▛█▜|▜█▛)/ }))?.text
+  expect(bar).toMatch(/ 50%  0:15$/)
+  expect((await ui.find({ type: 'Text', text: /Write tests/ }))?.text).toMatch(/^  ○ Write tests$/)
   expect((await ui.find({ type: 'Text', text: /^ Claude / }))?.text).toMatch(/ 38%/)
   expect(await ui.find({ type: 'Text', text: /Overall/ })).toBeUndefined()
   await ui.unmount()
@@ -300,6 +300,15 @@ test('each plan step has its own bar and they drive the Claude bar', async ($, o
   })
   ui = await $.ui.mount(PANE)
   expect((await ui.find({ type: 'Text', text: /^ Claude / }))?.text).toMatch(/100%/)
+  await ui.unmount()
+
+  // A title too long for the pane uses its whole width before it is cut.
+  await $.tool.call({
+    tool: 'mcp__clawd-at-work__plan',
+    steps: [{ title: 'Check the pane loads the edited mod from the local folder', status: 'done' }],
+  })
+  ui = await $.ui.mount(PANE)
+  expect((await ui.find({ type: 'Text', text: /Check the pane/ }))?.text).toBe('  ✓ Check the pane loads the edited mod…')
   await ui.unmount()
 
   // A new prompt clears the plan.
@@ -341,8 +350,8 @@ test('without a declared plan, real actions become auto steps', async ($, on) =>
   const WIDE = { ...PANE, props: { ...PANE.props, bodyColumns: 60 } }
   let ui = await $.ui.mount(WIDE)
   expect((await ui.find({ type: 'Text', text: /^ Steps / }))?.text).toMatch(/2 done · auto/)
-  expect((await ui.find({ type: 'Text', text: /Read settings/ }))?.text).toMatch(/✓ Read settings.*×2.*100%$/)
-  expect((await ui.find({ type: 'Text', text: /Run node/ }))?.text).toMatch(/✓ Run node merge\.js.*100%$/)
+  expect((await ui.find({ type: 'Text', text: /Read settings/ }))?.text).toMatch(/✓ Read settings\.json ×2$/)
+  expect((await ui.find({ type: 'Text', text: /Run node/ }))?.text).toMatch(/✓ Run node merge\.js$/)
   // No plan was declared, so the Claude bar keeps its time estimate.
   expect((await ui.find({ type: 'Text', text: /^ Claude / }))?.text).toMatch(/ 3%/)
   await ui.unmount()
@@ -358,6 +367,23 @@ test('without a declared plan, real actions become auto steps', async ($, on) =>
   await $.prompt.submit({ text: 'next', wait: false, origin: { kind: 'composer' } })
   ui = await $.ui.mount(PANE)
   expect(await ui.find({ type: 'Text', text: /^ (Steps|Plan) / })).toBeUndefined()
+  await ui.unmount()
+})
+
+test('a command that starts by changing folder shows the work after it', async ($, on) => {
+  engine(on)
+  on('turn.start', (_, e) => ({ turnId: e.turnId }))
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+  await $.turn.start({ text: 'test it', turnId: 't1' })
+
+  await $.tool.call({ tool: 'Bash', command: 'cd "C:/Users/me/Desktop/my repo" && npm test' })
+  await $.tool.call({ tool: 'PowerShell', command: 'Set-Location C:\\repo; git status' })
+  await $.tool.call({ tool: 'Bash', command: 'cd /home/me/project/' })
+  const ui = await $.ui.mount({ ...PANE, props: { ...PANE.props, bodyColumns: 60 } })
+  expect(await ui.find({ type: 'Text', text: /Run npm test/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /Run git status/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /Run cd project/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /Users/ })).toBeUndefined()
   await ui.unmount()
 })
 
@@ -427,7 +453,7 @@ test('a finished step teaches the typical step time', async ($, on) => {
   // 5 s into step Two reads 50% of the learned 10 s, not 17% of 30 s.
   await clock.set(1_000 + 15_000)
   const ui = await $.ui.mount(PANE)
-  expect((await ui.find({ type: 'Text', text: /Two/ }))?.text).toMatch(/ 50%$/)
+  expect((await ui.find({ type: 'Text', text: /^ {4}━*(▛█▜|▜█▛)/ }))?.text).toMatch(/ 50%  0:05$/)
   await ui.unmount()
 })
 

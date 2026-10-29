@@ -171,13 +171,27 @@ const pathKey = (path: string) => {
 // "1 tool", "2 tools".
 const plural = (k: number, word: string) => `${k} ${word}${k === 1 ? '' : 's'}`
 
+// A leading change of folder (`cd repo && npm test`, `Set-Location x; ...`)
+// says nothing of the work and fills the line, so it is dropped. A command
+// that only changes folder keeps the folder's name.
+const CD_PREFIX = /^\s*(?:cd|chdir|pushd|set-location|sl)\b(?:"[^"]*"|'[^']*'|[^"'&;|\n])*(?:&&|;|\n)\s*/i
+const CD_ONLY = /^\s*(?:cd|chdir|pushd|set-location|sl)\s+(?:\/d\s+)?["']?(.*?)["']?\s*$/i
+const shellTarget = (command: string) => {
+  let rest = command
+  for (let m = CD_PREFIX.exec(rest); m && m[0].length < rest.length; m = CD_PREFIX.exec(rest)) {
+    rest = rest.slice(m[0].length)
+  }
+  const only = CD_ONLY.exec(rest)
+  return only ? `cd ${baseName(only[1]!.replace(/[\\/]+$/, ''))}` : rest
+}
+
 // What a tool call works on: the first naming field of its input, with a
 // path cut to its file name and one line of at most TARGET_MAX characters.
 const targetOf = (input: Record<string, unknown>) => {
   for (const field of TARGET_FIELDS) {
     const value = input[field]
     if (typeof value !== 'string' || value === '') continue
-    const text = field.endsWith('path') ? baseName(value) : value
+    const text = field.endsWith('path') ? baseName(value) : field === 'command' ? shellTarget(value) : value
     return clip(text.split('\n')[0] ?? '', TARGET_MAX)
   }
   return ''
@@ -979,9 +993,19 @@ export const register: Register = on => {
     // of the room, newest first: two rows each, plus an open dropdown's
     // tool lines. Skills get the rest.
     const bodyRows = e.props.scroll?.bodyRows ?? e.viewport?.rows ?? 24
+    // A declared plan shows a window starting just before its first
+    // unfinished step; auto steps show the newest, the one in progress last.
+    const planDone = stepsNow.filter(s => s.status === 'done').length
+    const firstOpen = Math.max(0, stepsNow.findIndex(s => s.status !== 'done'))
+    const planStart = isAuto
+      ? Math.max(0, stepsNow.length - SHOWN_STEPS)
+      : Math.max(0, Math.min(firstOpen - 2, stepsNow.length - SHOWN_STEPS))
+    const stepsShown = stepsNow.slice(planStart, planStart + SHOWN_STEPS)
     // Above the lists: the Claude bar, its activity line and a spacer while a
-    // turn runs (3); the plan's heading, its shown steps and a spacer.
-    const planRows = stepsNow.length > 0 ? 2 + Math.min(SHOWN_STEPS, stepsNow.length) : 0
+    // turn runs (3); the plan's heading, its shown steps (an active one with
+    // its bar beneath) and a spacer.
+    const planRows =
+      stepsShown.length > 0 ? 2 + stepsShown.length + stepsShown.filter(s => s.status === 'active').length : 0
     // Usage: heading, a row per limit window (or one saying none), tokens, spacer.
     const usageRows = 3 + Math.max(1, usageNow.limits.length)
     // Recent shows only under a declared plan: its heading and newest calls.
@@ -1118,37 +1142,39 @@ export const register: Register = on => {
           : Math.min(MAX_ESTIMATE, Math.floor(((now - since) / typicalMs(learned, MAIN_KEY)) * 100))
     const mainWidth = Math.max(14, Math.min(40, columns - 28))
 
-    // Plan: every step on one line each: status, title, and its own bar.
-    // Done bars are full, pending ones empty, and the active one fills by
-    // time with the mini Clawd running at its head. A declared plan shows a
-    // window starting just before its first unfinished step; auto steps show
-    // the newest, the step in progress at the bottom.
-    const planDone = stepsNow.filter(s => s.status === 'done').length
-    const firstOpen = Math.max(0, stepsNow.findIndex(s => s.status !== 'done'))
-    const planStart = isAuto
-      ? Math.max(0, stepsNow.length - SHOWN_STEPS)
-      : Math.max(0, Math.min(firstOpen - 2, stepsNow.length - SHOWN_STEPS))
-    const titleWidth = Math.max(8, Math.min(24, Math.floor((columns - 10) * 0.45)))
-    const stepWidth = Math.max(RUNNER[0]!.length + 3, Math.min(28, columns - titleWidth - 12))
+    // Plan: each step's title gets the whole line, so it reads in a narrow
+    // pane: ✓ done, ○ pending. The active step has its bar on a line of its
+    // own beneath, filling by time with the mini Clawd running at its head.
+    const titleWidth = Math.max(8, columns - 4)
+    const stepWidth = Math.max(RUNNER[0]!.length + 3, Math.min(28, columns - 18))
     const stepRow = (s: PlanStep) => {
-      const pct = stepPercent(s, learned, now)
       const full = s.count !== undefined && s.count > 1 ? `${s.title} ×${s.count}` : s.title
-      const title = clip(full, titleWidth).padEnd(titleWidth)
       const isActive = s.status === 'active'
-      const track = isActive ? stepWidth - RUNNER[0]!.length : stepWidth
-      const filled = Math.round((pct / 100) * track)
-      return (
+      const head = (
         <Text wrap="truncate-end">
           {'  '}
           <Text color={s.status === 'done' ? 'success' : isActive ? HOT : undefined} dimColor={s.status === 'pending'}>
             {s.status === 'done' ? '✓' : isActive ? SPIN[n % SPIN.length] : '○'}
           </Text>
-          <Text dimColor={!isActive}>{` ${title} `}</Text>
-          <Text color={s.status === 'done' ? 'success' : HOT}>{'━'.repeat(filled)}</Text>
-          {isActive && <Text color={HOT} bold>{RUNNER[n % RUNNER.length]}</Text>}
-          <Text dimColor>{'─'.repeat(track - filled)}</Text>
-          <Text dimColor={!isActive}>{` ${String(pct).padStart(3)}%`}</Text>
+          <Text dimColor={!isActive}>{` ${clip(full, titleWidth)}`}</Text>
         </Text>
+      )
+      if (!isActive) return head
+      const pct = stepPercent(s, learned, now)
+      const track = stepWidth - RUNNER[0]!.length
+      const filled = Math.round((pct / 100) * track)
+      return (
+        <Box flexDirection="column">
+          {head}
+          <Text wrap="truncate-end">
+            {'    '}
+            <Text color={HOT}>{'━'.repeat(filled)}</Text>
+            <Text color={HOT} bold>{RUNNER[n % RUNNER.length]}</Text>
+            <Text dimColor>{'─'.repeat(track - filled)}</Text>
+            {` ${String(pct).padStart(3)}%`}
+            <Text dimColor>{`  ${clock(now - (s.startedAt ?? now))}`}</Text>
+          </Text>
+        </Box>
       )
     }
     const planRowsShown = (
@@ -1159,7 +1185,7 @@ export const register: Register = on => {
             {isAuto ? `${planDone} done · auto` : `${planDone}/${planNow.length} steps done`}
           </Text>
         </Text>
-        {stepsNow.slice(planStart, planStart + SHOWN_STEPS).map(stepRow)}
+        {stepsShown.map(stepRow)}
       </Box>
     )
     const mainTrack = mainWidth - RUNNER[0]!.length

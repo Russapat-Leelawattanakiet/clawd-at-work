@@ -11,10 +11,11 @@ is doing and how far along it is.
  Claude   ━━━━━━━━━━━━━━▛█▜──────────  52%  0:42
           Editing register.tsx  step 6 · 9 tools
  Plan     2/4 steps done
-  ✓ Read the code         ━━━━━━━━━━━━━━━━━━ 100%
-  ✓ Write the README      ━━━━━━━━━━━━━━━━━━ 100%
-  ◐ Run the tests         ━━━━━━━▛█▜────────  41%
-  ○ Commit                ──────────────────   0%
+  ✓ Read the code
+  ✓ Write the README
+  ◐ Run the tests
+    ━━━━━━━━━▛█▜─────────────  41%  0:12
+  ○ Commit
  Recent   9 actions
   ✓ Run claude plugin test .              1.6s
   ▤ Read register.test.tsx                0.1s
@@ -48,8 +49,8 @@ Skills
   `Done ✓ 2:14 · 2 files edited · 12 tools`, with any failed calls counted in red (`Stopped` if you interrupted it, `Failed` if an API error or a refusal
   ended it).
 - **Plan.** The mod gives Claude a `plan` tool (`mcp__clawd-at-work__plan`) and a short note in its system prompt asking
-  it to list its steps for any multi-step task. Each step gets its own bar, and the Claude bar becomes the real progress
-  through the plan. Claude Code's own `TodoWrite` list drives the plan too.
+  it to list its steps for any multi-step task. Each step's title gets the full width of the pane, the step in progress
+  has its own bar and time beneath it, and the Claude bar becomes the real progress through the plan. Claude Code's own `TodoWrite` list drives the plan too.
 - **Steps (auto).** When Claude has not declared a plan, the pane builds steps from what it actually does (each tool
   call, each stretch of thinking), and repeats of the same action merge into one counted step.
 - **Recent.** Under a declared plan, the last few actions Claude took, each with an icon for its kind and how long it
