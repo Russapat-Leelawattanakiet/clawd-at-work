@@ -24,9 +24,14 @@ Each requirement has an ID so test reports can point at it. "Narrow" means a 40-
 ## 2. Readable text in a narrow pane
 
 - **R2.1** Every line fits the pane width; nothing wraps into the next line or overflows.
-- **R2.2** Shell commands show the work, not the plumbing: a leading change of folder (`cd`, `Set-Location`, `pushd`)
-  is dropped, and long paths inside a command are cut to their last name. Short paths, URLs, globs and flags stay.
-- **R2.3** File targets show the file's name, not its full path.
+- **R2.2** Shell commands show the work, not the plumbing, in this order:
+  1. A fixed template in plain words (`Run tests`, `Check git status`). A chain is named after its most telling command,
+     with `+N` for the others; plumbing such as `cd` and `echo` is not counted, and only a pipe's first command counts.
+  2. The description Claude already gave the call, which costs no tokens to read.
+  3. The command itself, with a leading change of folder (`cd`, `Set-Location`, `pushd`) dropped and long paths cut to
+     their last name. Short paths, URLs, globs and flags stay.
+- **R2.3** File targets show the file's name, not its full path. A URL shows its host, a regex search its most readable
+  word with `+N` for other alternatives, and an MCP tool its server and name in plain words.
 - **R2.4** Plan and step titles get the full width of the pane (about 35 characters when narrow) before they are cut
   with `…`.
 - **R2.5** Text cut to fit always ends in `…`, never mid-character or with a broken surrogate pair.

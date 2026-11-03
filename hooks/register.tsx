@@ -60,6 +60,9 @@ const TARGET_FIELDS = [
   'prompt',
 ]
 const TARGET_MAX = 40
+// A shell call's own description, when no template names it; the pane cuts it
+// to its width.
+const DESCRIPTION_MAX = 60
 
 const MAX_STEPS = 20
 // Plan titles are kept up to this long; the pane cuts them to its width.
@@ -315,28 +318,299 @@ const shellTarget = (command: string) => {
   return only ? `cd ${baseName(only[1]!.replace(/[\\/]+$/, ''))}` : rest.replace(SHELL_WORD, shortPath)
 }
 
-// What a tool call works on: the first naming field of its input, with a
-// path cut to its file name and one plain line of at most TARGET_MAX columns.
+// A shell command split into the commands it chains (&&, ||, ;, new lines).
+// Quotes, brackets and heredoc bodies are not split, and only the first
+// command of a pipe counts: in `grep x | head`, the work is the grep.
+const shellParts = (command: string) => {
+  const parts: string[] = []
+  let part = ''
+  let quote = ''
+  let depth = 0
+  let isPiped = false
+  let heredoc = ''
+  const close = () => {
+    parts.push(part.trim())
+    part = ''
+    isPiped = false
+  }
+  const add = (text: string) => {
+    if (!isPiped) part += text
+  }
+  for (let i = 0; i < command.length; i++) {
+    const c = command[i]!
+    if (quote !== '') {
+      if (c === '\\' && quote === '"' && command[i + 1] === '"') {
+        add('\\"')
+        i++
+        continue
+      }
+      if (c === quote) quote = ''
+      add(c)
+      continue
+    }
+    if (c === '\\' && /[\r\n]/.test(command[i + 1] ?? '')) {
+      add(' ')
+      i += command[i + 1] === '\r' && command[i + 2] === '\n' ? 2 : 1
+      continue
+    }
+    if (c === '"' || c === "'") {
+      quote = c
+      add(c)
+      continue
+    }
+    const here = c === '<' ? /^<<-?\s*["']?(\w+)["']?/.exec(command.slice(i, i + 80)) : null
+    if (here) {
+      heredoc = here[1]!
+      i += here[0].length - 1
+      continue
+    }
+    if (c === '(' || c === '{') depth++
+    if ((c === ')' || c === '}') && depth > 0) depth--
+    const isNewLine = c === '\n' || c === '\r'
+    if (isNewLine && heredoc !== '') {
+      // Skip the heredoc's body, up to and including the line that ends it.
+      let at = i
+      while (at !== -1 && at < command.length) {
+        const next = command.indexOf('\n', at + 1)
+        const line = command.slice(at + 1, next === -1 ? command.length : next)
+        at = next
+        if (line.trim() === heredoc) break
+      }
+      heredoc = ''
+      if (at === -1) break
+      i = at
+      if (depth === 0) close()
+      continue
+    }
+    if (depth > 0) {
+      add(isNewLine ? ' ' : c)
+      continue
+    }
+    const pair = command.slice(i, i + 2)
+    if (pair === '&&' || pair === '||') {
+      close()
+      i++
+    } else if (c === ';' || isNewLine) {
+      close()
+    } else if (c === '|') {
+      isPiped = true
+    } else {
+      add(c)
+    }
+  }
+  close()
+  return parts.filter(p => p !== '')
+}
+
+// Words in front of a command that say nothing of its work.
+const SHELL_PREFIX =
+  /^(?:[A-Za-z_]\w*=(?:"[^"]*"|'[^']*'|\S*)\s+|(?:sudo|time|nohup|command|exec|do|then|else|elif|if|while|until)\s+|[!&]\s+|timeout\s+\S+\s+)/i
+// Commands that are plumbing: left out when a chain has anything else to show.
+const SHELL_NOISE =
+  /^(?:(?:cd|chdir|pushd|popd|set-location|sl|echo|printf|write-host|write-output|true|false|:|pwd|set|exit|export|clear|sleep|for|foreach|case|function|done|fi|esac|\{|\}|\(|\))(?:\s|$)|[A-Za-z_]\w*=|\$\w+\s*=)/i
+const SHELL_ARG = `("[^"]*"|'[^']*'|[^\\s"'-][^\\s"']*)`
+
+// Plain words for common commands, the most telling first: a chain is named
+// after the first row any of its commands matches. $1 is the row's capture,
+// cut to a file name, or a host for a URL.
+const SHELL_TEMPLATES: [RegExp, string, string][] = [
+  [/^git push\b/i, 'Push changes', 'Pushing changes'],
+  [/^git commit\b/i, 'Commit changes', 'Committing changes'],
+  [/^git merge\b/i, 'Merge branch', 'Merging branch'],
+  [/^git rebase\b/i, 'Rebase branch', 'Rebasing branch'],
+  [/^git pull\b/i, 'Pull changes', 'Pulling changes'],
+  [/^git clone\b/i, 'Clone repository', 'Cloning repository'],
+  [/^gh pr create\b/i, 'Open pull request', 'Opening pull request'],
+  [/^gh pr\b/i, 'Check pull request', 'Checking pull request'],
+  [/^gh issue\b/i, 'Check GitHub issue', 'Checking GitHub issue'],
+  [/^gh\b/i, 'Use GitHub', 'Using GitHub'],
+  [
+    /^(?:(?:npm|pnpm|yarn|bun)(?: run)? test\b|npx (?:vitest|jest|playwright)\b|vitest\b|jest\b|pytest\b|python[\d.]* -m pytest\b|cargo test\b|go test\b|make (?:test|check)\b|claude plugin test\b)/i,
+    'Run tests',
+    'Running tests',
+  ],
+  [/^(?:(?:npm|pnpm|yarn|bun)(?: run)? build\b|(?:npx )?vite build\b|cargo build\b|go build\b|make\b)/i, 'Build project', 'Building project'],
+  [/^(?:npx )?tsc\b/i, 'Check types', 'Checking types'],
+  [/^(?:(?:npm|pnpm|yarn|bun)(?: run)? lint\b|(?:npx )?eslint\b|ruff\b)/i, 'Check code style', 'Checking code style'],
+  [/^(?:npx )?prettier\b/i, 'Format code', 'Formatting code'],
+  [/^(?:(?:npm|pnpm|yarn|bun) (?:install|i|ci|add)\b|pip[\d.]* install\b|uv (?:pip|add)\b|cargo add\b)/i, 'Install packages', 'Installing packages'],
+  [/^(?:npm|pnpm|yarn|bun) (?:uninstall|remove|rm)\b/i, 'Remove packages', 'Removing packages'],
+  [/^claude plugin validate\b/i, 'Validate plugin', 'Validating plugin'],
+  [/^claude plugin (?:install|update)\b/i, 'Install plugin', 'Installing plugin'],
+  [/^claude plugin uninstall\b/i, 'Uninstall plugin', 'Uninstalling plugin'],
+  [/^claude plugin\b/i, 'Manage plugins', 'Managing plugins'],
+  [/^(?:rm|rmdir|del|remove-item)\b/i, 'Delete files', 'Deleting files'],
+  [/^(?:mv|move|ren|move-item|rename-item)\b/i, 'Move files', 'Moving files'],
+  [/^(?:cp|copy|copy-item)\b/i, 'Copy files', 'Copying files'],
+  [/^(?:mkdir|md)\b/i, 'Create folder', 'Creating folder'],
+  [/^new-item\b/i, 'Create item', 'Creating item'],
+  [/^write-to (.+)$/i, 'Write $1', 'Writing $1'],
+  [/^sed\b.*\s-i\b/i, 'Edit file', 'Editing file'],
+  [/^git add\b/i, 'Stage files', 'Staging files'],
+  [/^git (?:switch|checkout)\b/i, 'Switch branch', 'Switching branch'],
+  [/^git stash\b/i, 'Stash changes', 'Stashing changes'],
+  [/^git (?:restore|reset)\b/i, 'Undo changes', 'Undoing changes'],
+  [/^git fetch\b/i, 'Fetch changes', 'Fetching changes'],
+  [/^git diff\b/i, 'Compare changes', 'Comparing changes'],
+  [/^git show\b/i, 'Show commit', 'Showing commit'],
+  [/^git log\b/i, 'Read git history', 'Reading git history'],
+  [/^git status\b/i, 'Check git status', 'Checking git status'],
+  [/^git branch\b/i, 'Check branches', 'Checking branches'],
+  [/^git remote\b/i, 'Check remotes', 'Checking remotes'],
+  [/^git (\S+)/i, 'Run git $1', 'Running git $1'],
+  [/^(?:python[\d.]*|py|node|deno|ruby|perl)\s+(?:-\S+\s+)*-[cep]\b/i, 'Run inline code', 'Running inline code'],
+  [new RegExp(`^(?:python[\\d.]*|py|node|deno|ruby|tsx|ts-node)\\s+(?:-\\S+\\s+)*${SHELL_ARG}`, 'i'), 'Run $1', 'Running $1'],
+  [/^(\S+\.(?:sh|bash|ps1|py|js|mjs|ts))(?:\s|$)/i, 'Run $1', 'Running $1'],
+  [/^(?:npm|pnpm|yarn|bun) run (\S+)/i, 'Run $1 script', 'Running $1 script'],
+  [/^npx (?:-\S+\s+)*([^\s-]\S*)/i, 'Run $1', 'Running $1'],
+  [/^(?:curl|wget|invoke-webrequest|iwr)\b.*?(https?:\/\/[^\s"']+)/i, 'Download from $1', 'Downloading from $1'],
+  [/^(?:curl|wget|invoke-webrequest|iwr)\b/i, 'Download file', 'Downloading file'],
+  [new RegExp(`^(?:cat|head|tail|type|less|more|get-content|gc)\\b(?:.*\\s)?${SHELL_ARG}$`, 'i'), 'Read $1', 'Reading $1'],
+  [/^(?:cat|head|tail|type|less|more|get-content|gc|sed)\b/i, 'Read file', 'Reading file'],
+  [/^(?:grep|rg|ag|ack|findstr|select-string|sls)\b/i, 'Search files', 'Searching files'],
+  [/^(?:ls|ll|dir|find|fd|tree|gci|get-childitem)\b/i, 'List files', 'Listing files'],
+  [/^wc\b/i, 'Count lines', 'Counting lines'],
+  [/^(?:awk|perl|sort|uniq|jq|cut|tr|xargs)\b/i, 'Process text', 'Processing text'],
+  [/^sleep\b/i, 'Wait', 'Waiting'],
+]
+
+type Words = { action: string; doing: string }
+
+// A command with its prefixes gone, ready to match: its program in lower case
+// with no folder or .exe, redirects dropped, `cat > x` read as a write, and
+// `git -C folder` read as plain git.
+const shellMatchText = (text: string) => {
+  const write = /^(?:cat|echo|printf)\b.*?(?<!\d)>{1,2}\s*("[^"]*"|'[^']*'|[^\s"'&]+)\s*$/i.exec(text)?.[1]
+  if (write !== undefined && !/^["']?(?:\/dev\/null|nul)["']?$/i.test(write)) return `write-to ${write}`
+  const plain = text.replace(/\s*\d*(?:>>?|<<<?-?)&?\s*(?:"[^"]*"|'[^']*'|[^\s"']+)/g, '')
+  const m = /^("[^"]*"|'[^']*'|\S+)\s*([\s\S]*)$/.exec(plain)
+  if (!m) return plain
+  const program = baseName(m[1]!.replace(/^["']|["']$/g, ''))
+    .toLowerCase()
+    .replace(/\.(?:exe|cmd|bat)$/, '')
+  const rest = program === 'git' ? m[2]!.replace(/^(?:-[cC]\s+(?:"[^"]*"|'[^']*'|\S+)\s+)+/, '') : m[2]!
+  return `${program} ${rest}`.trim()
+}
+
+// What a template's $1 shows: a URL's host, else a file or folder name.
+const templateName = (value: string) => {
+  const text = plainLine(value.replace(/^["']|["']$/g, ''))
+  const host = /^[a-z][a-z\d+.-]*:\/\/(?:www\.)?([^/?#:]+)/i.exec(text)?.[1]
+  return clip(host ?? baseName(text), 30)
+}
+
+// A shell call in plain words: a template when any of its commands has one,
+// with `+N` for the others; else the description Claude already gave the
+// call, which costs no tokens to read. Undefined when it has neither.
+const shellWords = (command: unknown, description: unknown): Words | undefined => {
+  if (typeof command !== 'string') return undefined
+  const texts = shellParts(command).map(part => {
+    let text = part
+    for (let m = SHELL_PREFIX.exec(text); m; m = SHELL_PREFIX.exec(text)) text = text.slice(m[0].length)
+    return text.trim()
+  })
+  const work = texts.filter(t => t !== '' && !SHELL_NOISE.test(t))
+  const parts = (work.length > 0 ? work : texts.filter(t => t !== '')).map(shellMatchText)
+  const more = parts.length > 1 ? ` +${parts.length - 1}` : ''
+  for (const [pattern, action, doing] of SHELL_TEMPLATES) {
+    for (const part of parts) {
+      const m = pattern.exec(part)
+      if (!m) continue
+      const fill = (words: string) => `${words.replace('$1', m[1] ? templateName(m[1]) : '')}${more}`
+      return { action: fill(action), doing: fill(doing) }
+    }
+  }
+  const said = plainOf(description).trim()
+  if (said === '') return undefined
+  return { action: clip(said, DESCRIPTION_MAX), doing: clip(said, DESCRIPTION_MAX) }
+}
+
+// A Grep pattern a person can read: the longest plain word of its first
+// alternative, with `+N` for the others (`a|b|c` reads `a +2`).
+const searchTarget = (pattern: string) => {
+  if (!/[|\\()[\]^$+?*{}]/.test(pattern)) return pattern
+  const alternatives: string[] = ['']
+  let depth = 0
+  for (let i = 0; i < pattern.length; i++) {
+    const c = pattern[i]!
+    if (c === '\\' && pattern[i + 1] !== '|') {
+      alternatives[alternatives.length - 1] += pattern.slice(i, i + 2)
+      i++
+      continue
+    }
+    if (c === '(' || c === '[') depth++
+    if ((c === ')' || c === ']') && depth > 0) depth--
+    const isEscapedBar = c === '\\' && pattern[i + 1] === '|'
+    if (depth === 0 && (c === '|' || isEscapedBar)) {
+      alternatives.push('')
+      if (isEscapedBar) i++
+      continue
+    }
+    alternatives[alternatives.length - 1] += c
+  }
+  const words = alternatives[0]!
+    .replace(/\[[^\]]*\]/g, ' ')
+    .replace(/\\[a-zA-Z]/g, ' ')
+    .match(/[\p{L}\p{N}_][\p{L}\p{N}_.-]*/gu)
+  const word = (words ?? []).reduce((best, w) => (w.length > best.length ? w : best), '')
+  if (word === '') return 'a pattern'
+  return alternatives.length > 1 ? `${word} +${alternatives.length - 1}` : word
+}
+
+// What a tool call works on: the first naming field of its input in plain
+// words (a template for a shell command, a host for a URL, a readable word for
+// a search), one plain line of at most TARGET_MAX columns.
 const targetOf = (input: Record<string, unknown>) => {
   for (const field of TARGET_FIELDS) {
     const value = input[field]
     if (typeof value !== 'string' || value === '') continue
-    const text = plainLine(field.endsWith('path') ? baseName(value) : field === 'command' ? shellTarget(value) : value)
+    const named =
+      field === 'command'
+        ? (shellWords(value, input.description)?.action ?? shellTarget(value))
+        : field === 'url'
+          ? templateName(value)
+          : field === 'pattern' && input.tool === 'Grep'
+            ? searchTarget(value)
+            : field.endsWith('path')
+              ? baseName(value)
+              : value
+    const text = plainLine(named)
     if (text.trim() === '') continue
     return clip(text, TARGET_MAX)
   }
   return ''
 }
 
-// A tool's display name: MCP tools read as `server tool name`, not
-// mcp__server__tool_name.
-const toolName = (name: string) =>
-  name.startsWith('mcp__') ? name.split('__').slice(1).join(' ').replace(/_/g, ' ') : name
+// A name in plain lower-case words: searchJiraIssues, list_issues and
+// read-design all read as words.
+const spaced = (name: string) =>
+  name
+    .replace(/([a-z\d])([A-Z])/g, '$1 $2')
+    .replace(/[_-]+/g, ' ')
+    .toLowerCase()
+    .trim()
+
+// A tool's display name. An MCP tool reads `Google Drive: search files`, not
+// mcp__claude_ai_Google_Drive__search_files; another tool Claude has that the
+// table below does not name reads in plain words too (`Some unknown tool`).
+const toolName = (name: string) => {
+  if (!name.startsWith('mcp__')) {
+    const words = spaced(name)
+    return words === '' ? name : `${words[0]!.toUpperCase()}${words.slice(1)}`
+  }
+  const [server = '', ...rest] = name.split('__').slice(1)
+  const label = server
+    .replace(/^claude_ai_/, '')
+    .replace(/^plugin_[^_]+_/, '')
+    .replace(/_/g, ' ')
+  const tool = spaced(rest.join(' '))
+  const own = tool.toLowerCase().startsWith(`${label.toLowerCase()} `) ? tool.slice(label.length + 1) : tool
+  return own === '' ? label : `${label}: ${own}`
+}
 
 // The same, short, for a dropdown line: an MCP tool by its own name alone
 // (`list issues`), so the target still fits.
-const shortTool = (name: string) =>
-  name.startsWith('mcp__') ? (name.split('__').at(-1) ?? name).replace(/_/g, ' ') : name
+const shortTool = (name: string) => (name.startsWith('mcp__') ? spaced(name.split('__').at(-1) ?? name) : name)
 
 // Steps from a TodoWrite call: titles trimmed to one short line,
 // unknown statuses read as pending, at most MAX_STEPS kept.
@@ -416,10 +690,30 @@ const TOOLS: Record<string, { action: string; doing: string; mood: Mood }> = {
   Artifact: { action: 'Publish page', doing: 'Publishing page', mood: 'tool' },
   ToolSearch: { action: 'Load tools', doing: 'Loading tools', mood: 'search' },
   TodoWrite: { action: 'Update the plan', doing: 'Updating the plan', mood: 'think' },
+  EnterPlanMode: { action: 'Start planning', doing: 'Planning', mood: 'think' },
+  SendMessage: { action: 'Message an agent', doing: 'Messaging an agent', mood: 'agent' },
+  ListAgents: { action: 'List agents', doing: 'Listing agents', mood: 'agent' },
+  TaskStop: { action: 'Stop a task', doing: 'Stopping a task', mood: 'agent' },
+  Workflow: { action: 'Run workflow', doing: 'Running workflow', mood: 'agent' },
+  Monitor: { action: 'Watch for a change', doing: 'Watching for a change', mood: 'tool' },
+  ArtifactData: { action: 'Update page data', doing: 'Updating page data', mood: 'tool' },
+  ArtifactComments: { action: 'Check page comments', doing: 'Checking page comments', mood: 'tool' },
+  EnterWorktree: { action: 'Enter worktree', doing: 'Entering worktree', mood: 'tool' },
+  ExitWorktree: { action: 'Leave worktree', doing: 'Leaving worktree', mood: 'tool' },
 }
 const withTarget = (words: string, target: string) => `${words}${target ? ` ${target}` : ''}`
 const actionTitle = (tool: string, target: string) => withTarget(TOOLS[tool]?.action ?? toolName(tool), target)
 const doingTitle = (tool: string, target: string) => withTarget(TOOLS[tool]?.doing ?? toolName(tool), target)
+// A call's words for its step and feed row, and for the line under the Claude
+// bar. A template already says what a shell call does, and an MCP tool's name
+// fills the line, so neither takes a target.
+const titlesOf = (tool: string, input: Record<string, unknown>): Words => {
+  const words = tool === 'Bash' || tool === 'PowerShell' ? shellWords(input.command, input.description) : undefined
+  if (words) return words
+  if (tool.startsWith('mcp__')) return { action: toolName(tool), doing: toolName(tool) }
+  const target = targetOf(input)
+  return { action: actionTitle(tool, target), doing: doingTitle(tool, target) }
+}
 const moodOf = (tool: string): Mood => TOOLS[tool]?.mood ?? 'tool'
 
 // The feed keeps its newest MAX_FEED calls and counts every one pushed.
@@ -1095,15 +1389,15 @@ export const register: Register = on => {
     const loop = e.agentId
     const input = e as unknown as Record<string, unknown>
     if (loop === undefined) {
-      const target = targetOf(input)
+      const { action, doing } = titlesOf(e.tool, input)
       const mood = moodOf(e.tool)
-      await update($, main, m => ({ ...m, tools: m.tools + 1, mood, activity: doingTitle(e.tool, target) }))
+      await update($, main, m => ({ ...m, tools: m.tools + 1, mood, activity: doing }))
       if (e.tool === 'TodoWrite') return next(e)
       // Step, feed and file bookkeeping never gets in the way of the call itself.
       const id = e.tool_use_id
-      await startAuto($, 'tool', `${e.tool}:${target}`, actionTitle(e.tool, target)).catch(() => {})
+      await startAuto($, 'tool', `${e.tool}:${action}`, action).catch(() => {})
       const startedAt = await $.clock.now()
-      await pushFeed($, { id, title: actionTitle(e.tool, target), mood, status: 'running', startedAt }).catch(() => {})
+      await pushFeed($, { id, title: action, mood, status: 'running', startedAt }).catch(() => {})
       const ran = await next(e)
       // Nothing after the call may throw: the hook's catch would run it again.
       const isFailed = ran.deny !== undefined || ran.isError === true

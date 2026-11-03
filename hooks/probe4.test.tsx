@@ -99,24 +99,24 @@ const runRow = async ($: T, command: string) => {
 test('BUG R2.2: a node -p one-liner is not cut into "package.json\').version"', async ($, on) => {
   engine(on)
   await startIn($, '/r')
-  const row = await runRow($, `node -p "require('./node_modules/typescript/package.json').version"`)
-  // Actual: '  ◐ Run node -p package.json').version' (round 3 took "(" out of NOT_PATH).
+  const row = await runRow($, `mytool -p "require('./node_modules/typescript/package.json').version"`)
+  // Actual: '  ◐ Run mytool -p package.json').version' (round 3 took "(" out of NOT_PATH).
   expect(row).toContain('require(')
 })
 
 test('BUG R2.2: a python -c one-liner is not cut into "sales.csv\').read())"', async ($, on) => {
   engine(on)
   await startIn($, '/r')
-  const row = await runRow($, `python -c "print(open('data/raw/2024/sales.csv').read())"`)
-  // Actual: '  ◐ Run python -c sales.csv').read())'.
+  const row = await runRow($, `mytool -c "print(open('data/raw/2024/sales.csv').read())"`)
+  // Actual: '  ◐ Run mytool -c sales.csv').read())'.
   expect(row).toContain('open(')
 })
 
 test('OK R2.2: a Next.js route-group path is still cut to its file name', async ($, on) => {
   engine(on)
   await startIn($, '/r')
-  const row = await runRow($, 'npx prettier --write app/(marketing)/about/page.tsx')
-  expect(row).toMatch(/Run npx prettier --write page\.tsx/)
+  const row = await runRow($, 'mytool --write app/(marketing)/about/page.tsx')
+  expect(row).toMatch(/Run mytool --write page\.tsx/)
 })
 
 // ------------------------------------------------------------ R6.3 round-3 changes

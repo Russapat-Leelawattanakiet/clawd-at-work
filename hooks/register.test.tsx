@@ -122,7 +122,7 @@ test('in a short pane every running agent still shows, one line each', async ($,
   await $.turn.start({ text: 'two helpers', turnId: 't1' })
   await $.tool.call({
     tool: 'TodoWrite',
-    todos: ['Read', 'Send helpers', 'Merge', 'Publish'].map((title, i) => ({ content: title, status: i === 1 ? 'in_progress' : 'pending' })),
+    todos: ['Read', 'Send helpers', 'Merge', 'Publish'].map((title, i) => ({ content: title, status: i === 1 ? 'in_progress' : 'pending', activeForm: 'Working' })),
   })
   await $.agent.spawn(SPAWN)
   await $.turn.start({ text: '', turnId: 'g1', agentId: 'f1' })
@@ -265,10 +265,10 @@ test('each plan step has its own bar and they drive the Claude bar', async ($, o
   await $.tool.call({
     tool: 'TodoWrite',
     todos: [
-      { content: 'Read the code', status: 'completed' },
-      { content: 'Add the plan tool', status: 'in_progress' },
-      { content: 'Write tests', status: 'pending' },
-      { content: 'Run the checks', status: 'pending' },
+      { content: 'Read the code', status: 'completed', activeForm: 'Working' },
+      { content: 'Add the plan tool', status: 'in_progress', activeForm: 'Working' },
+      { content: 'Write tests', status: 'pending', activeForm: 'Working' },
+      { content: 'Run the checks', status: 'pending', activeForm: 'Working' },
     ],
   })
   // 15 s into the active step, half its 30 s default: steps read 100, 50, 0
@@ -292,6 +292,7 @@ test('each plan step has its own bar and they drive the Claude bar', async ($, o
     todos: ['Read the code', 'Add the plan tool', 'Write tests', 'Run the checks'].map(content => ({
       content,
       status: 'completed',
+      activeForm: 'Working',
     })),
   })
   ui = await $.ui.mount(PANE)
@@ -301,7 +302,7 @@ test('each plan step has its own bar and they drive the Claude bar', async ($, o
   // A title too long for the pane uses its whole width before it is cut.
   await $.tool.call({
     tool: 'TodoWrite',
-    todos: [{ content: 'Check the pane loads the edited mod from the local folder', status: 'completed' }],
+    todos: [{ content: 'Check the pane loads the edited mod from the local folder', status: 'completed', activeForm: 'Working' }],
   })
   ui = await $.ui.mount(PANE)
   expect((await ui.find({ type: 'Text', text: /Check the pane/ }))?.text).toBe('  ✓ Check the pane loads the edited mod…')
@@ -361,13 +362,13 @@ test('without a declared plan, real actions become auto steps', async ($, on) =>
   let ui = await $.ui.mount(WIDE)
   expect((await ui.find({ type: 'Text', text: /^ Steps / }))?.text).toMatch(/2 done · auto/)
   expect((await ui.find({ type: 'Text', text: /Read settings/ }))?.text).toMatch(/✓ Read settings\.json ×2$/)
-  expect((await ui.find({ type: 'Text', text: /Run node/ }))?.text).toMatch(/✓ Run node merge\.js$/)
+  expect((await ui.find({ type: 'Text', text: /Run merge/ }))?.text).toMatch(/✓ Run merge\.js$/)
   // No plan was declared, so the Claude bar keeps its time estimate.
   expect((await ui.find({ type: 'Text', text: /^ Claude / }))?.text).toMatch(/ 3%/)
   await ui.unmount()
 
   // A declared plan takes over from the auto steps.
-  await $.tool.call({ tool: 'TodoWrite', todos: [{ content: 'Ship it', status: 'in_progress' }] })
+  await $.tool.call({ tool: 'TodoWrite', todos: [{ content: 'Ship it', status: 'in_progress', activeForm: 'Working' }] })
   ui = await $.ui.mount(PANE)
   expect(await ui.find({ type: 'Text', text: /^ Steps / })).toBeUndefined()
   expect((await ui.find({ type: 'Text', text: /^ Plan / }))?.text).toMatch(/0\/1 steps done/)
@@ -390,8 +391,8 @@ test('a command that starts by changing folder shows the work after it', async (
   await $.tool.call({ tool: 'PowerShell', command: 'Set-Location C:\\repo; git status' })
   await $.tool.call({ tool: 'Bash', command: 'cd /home/me/project/' })
   const ui = await $.ui.mount({ ...PANE, props: { ...PANE.props, bodyColumns: 60 } })
-  expect(await ui.find({ type: 'Text', text: /Run npm test/ })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: /Run git status/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /Run tests/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /Check git status/ })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /Run cd project/ })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /Users/ })).toBeUndefined()
   await ui.unmount()
@@ -403,19 +404,125 @@ test('paths inside a command are cut to their last name', async ($, on) => {
   await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
   await $.turn.start({ text: 'test it', turnId: 't1' })
 
-  await $.tool.call({ tool: 'Bash', command: 'claude plugin marketplace add "C:\\Users\\me\\Desktop\\my repo"' })
-  await $.tool.call({ tool: 'Bash', command: 'grep -c x ~/.claude/plugins/cache/mod/hooks/register.tsx' })
-  await $.tool.call({ tool: 'Bash', command: 'git push origin/main hooks/a.ts /d' })
-  await $.tool.call({ tool: 'Bash', command: 'curl https://x.com/a/b/c src/**/*.ts' })
+  await $.tool.call({ tool: 'Bash', command: 'mytool marketplace add "C:\\Users\\me\\Desktop\\my repo"' })
+  await $.tool.call({ tool: 'Bash', command: 'mytool -c x ~/.claude/plugins/cache/mod/hooks/register.tsx' })
+  await $.tool.call({ tool: 'Bash', command: 'mytool origin/main hooks/a.ts /d' })
+  await $.tool.call({ tool: 'Bash', command: 'mytool https://x.com/a/b/c src/**/*.ts' })
   const ui = await $.ui.mount({ ...PANE, props: { ...PANE.props, bodyColumns: 80 } })
-  expect(await ui.find({ type: 'Text', text: /Run claude plugin marketplace add "my repo"/ })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: /Run grep -c x register\.tsx/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /Run mytool marketplace add "my repo"/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /Run mytool -c x register\.tsx/ })).toBeDefined()
   // Short paths, URLs, globs and flags are left as they are.
-  expect(await ui.find({ type: 'Text', text: /Run git push origin\/main hooks\/a\.ts \/d/ })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: /Run curl https:\/\/x\.com\/a\/b\/c src\/\*\*\/\*\.ts/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /Run mytool origin\/main hooks\/a\.ts \/d/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /Run mytool https:\/\/x\.com\/a\/b\/c src\/\*\*\/\*\.ts/ })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /Users|\.claude/ })).toBeUndefined()
   await ui.unmount()
 })
+
+// A shell call reads as plain words, not as the command it ran.
+for (const [command, title] of [
+  ['git status --short', 'Check git status'],
+  ['git -C "C:/a b/repo" log --oneline -3', 'Read git history'],
+  ['git branch -d old', 'Check branches'],
+  ['git cherry-pick abc', 'Run git cherry-pick'],
+  // A chain is named after its most telling command, with a count of the rest.
+  ['git add a.ts && git commit -m "fix" && git push', 'Push changes +2'],
+  [
+    'cd "C:/Users/me/my repo" && git status --short 2>/dev/null; git remote -v; git fetch origin 2>&1 | tail -2; claude plugin test . 2>&1 | grep -E "a|b"',
+    'Run tests +3',
+  ],
+  // Plumbing in a chain is not counted, and only a pipe's first command is.
+  ['echo "--- tests"; npm run test -- --watch', 'Run tests'],
+  ['grep -rn "a|b" hooks | head -5', 'Search files'],
+  ['$p = "x"; Remove-Item $p -Force', 'Delete files'],
+  ['FOO=1 sudo npm install', 'Install packages'],
+  // Separators inside quotes and heredocs do not split a command.
+  ['git commit -m "fix: a; b && git push"', 'Commit changes'],
+  ["git add a.ts && git commit -q -F - <<'EOF'\nfix: a; b && c\n\ngit push\nEOF\ngit push -u origin x", 'Push changes +2'],
+  // Files and scripts read by name, a download by its host.
+  ['python -I "C:/Users/me/scratch/audit.py" "$HOME/x"', 'Run audit.py'],
+  ['python -c "print(1)"', 'Run inline code'],
+  ['cat C:/repo/package.json', 'Read package.json'],
+  ["cat > C:/repo/out.txt <<'EOF'\nhello\nEOF", 'Write out.txt'],
+  ["sed -n '1,5p' a.md", 'Read file'],
+  ['sed -i s/a/b/ a.md', 'Edit file'],
+  ['npm run dev', 'Run dev script'],
+  ['npx vite build', 'Build project'],
+  ['curl -s https://www.example.com/a/b/c?d=1 -o f', 'Download from example.com'],
+  ['Get-ChildItem -Recurse C:\\repo', 'List files'],
+] as const) {
+  test(`a shell call reads "${title}": ${command.split('\n')[0]!.slice(0, 50)}`, async ($, on) => {
+    engine(on)
+    on('turn.start', (_, e) => ({ turnId: e.turnId }))
+    await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+    await $.turn.start({ text: 'go', turnId: 't1' })
+    await $.tool.call({ tool: 'Bash', command })
+    const ui = await $.ui.mount({ ...PANE, props: { ...PANE.props, bodyColumns: 60 } })
+    const rows = (await ui.findAll({ type: 'Text', text: /^ {2}\S / })).map(t => t.text.slice(4))
+    await ui.unmount()
+    expect(rows).toContain(title)
+  })
+}
+
+test('a shell call no template names uses its description, then its cleaned command', async ($, on) => {
+  engine(on)
+  on('turn.start', (_, e) => ({ turnId: e.turnId }))
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+  await $.turn.start({ text: 'go', turnId: 't1' })
+  const command = 'for f in a b; do mytool $f; done'
+  await $.tool.call({ tool: 'Bash', command, description: 'Convert each chart' } as never)
+  let ui = await $.ui.mount({ ...PANE, props: { ...PANE.props, bodyColumns: 60 } })
+  expect(await ui.find({ type: 'Text', text: /^ {2}\S Convert each chart$/ })).toBeTruthy()
+  // The line under the Claude bar says the same, with no "Running" in front.
+  expect(await ui.find({ type: 'Text', text: /Running Convert/ })).toBeUndefined()
+  await ui.unmount()
+
+  await $.tool.call({ tool: 'Bash', command: 'mytool --go C:\\Users\\me\\a\\b.txt' })
+  ui = await $.ui.mount({ ...PANE, props: { ...PANE.props, bodyColumns: 60 } })
+  expect(await ui.find({ type: 'Text', text: /^ {2}\S Run mytool --go b\.txt$/ })).toBeTruthy()
+  await ui.unmount()
+})
+
+test('a template wins over the description, and repeats of it merge', async ($, on) => {
+  engine(on)
+  on('turn.start', (_, e) => ({ turnId: e.turnId }))
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+  await $.turn.start({ text: 'go', turnId: 't1' })
+  await $.tool.call({ tool: 'Bash', command: 'grep -c one a.md', description: 'Count the ones' } as never)
+  await $.tool.call({ tool: 'Bash', command: 'grep -c two b.md', description: 'Count the twos' } as never)
+  const ui = await $.ui.mount({ ...PANE, props: { ...PANE.props, bodyColumns: 60 } })
+  expect(await ui.find({ type: 'Text', text: /^ {2}\S Search files ×2$/ })).toBeTruthy()
+  expect(await ui.find({ type: 'Text', text: /Count the/ })).toBeUndefined()
+  await ui.unmount()
+})
+
+// Other tools' long names and inputs read as plain words too.
+for (const [input, title] of [
+  [{ tool: 'mcp__claude_ai_Google_Drive__get_file_permissions', fileId: 'x' }, 'Google Drive: get file permissions'],
+  [{ tool: 'mcp__claude_ai_Atlassian_Rovo__searchJiraIssuesUsingJql', jql: 'x' }, 'Atlassian Rovo: search jira issues using jql'],
+  [{ tool: 'mcp__claude_ai_Notion__notion-create-pages', pages: [] }, 'Notion: create pages'],
+  [{ tool: 'mcp__plugin_design_figma__authenticate' }, 'figma: authenticate'],
+  [{ tool: 'SomeUnknownTool' }, 'Some unknown tool'],
+  [{ tool: 'EnterPlanMode' }, 'Start planning'],
+  [{ tool: 'Grep', pattern: 'additionalContext|systemMessage|hookOutput' }, 'Search additionalContext +2'],
+  [{ tool: 'Grep', pattern: 'TODO\\|FIXME' }, 'Search TODO +1'],
+  [{ tool: 'Grep', pattern: '\\bfunction\\s+\\w+' }, 'Search function'],
+  [{ tool: 'Grep', pattern: '^\\s*$' }, 'Search a pattern'],
+  [{ tool: 'Grep', pattern: 'usage' }, 'Search usage'],
+  [{ tool: 'Glob', pattern: 'src/**/*.ts' }, 'Find files src/**/*.ts'],
+  [{ tool: 'WebFetch', url: 'https://www.docs.example.com/a/very/long/path/to/page.html?x=1' }, 'Fetch docs.example.com'],
+] as const) {
+  test(`a ${input.tool} call reads "${title}"`, async ($, on) => {
+    engine(on)
+    on('turn.start', (_, e) => ({ turnId: e.turnId }))
+    await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+    await $.turn.start({ text: 'go', turnId: 't1' })
+    await $.tool.call(input as never)
+    const ui = await $.ui.mount({ ...PANE, props: { ...PANE.props, bodyColumns: 60 } })
+    const rows = (await ui.findAll({ type: 'Text', text: /^ {2}\S / })).map(t => t.text.slice(4))
+    await ui.unmount()
+    expect(rows).toContain(title)
+  })
+}
 
 test('the Claude bar shows the main turn and what Claude is doing', async ($, on) => {
   const clock = engine(on)
@@ -466,12 +573,12 @@ test('a finished agent runner closes its eyes', async ($, on) => {
 test('a finished step teaches the typical step time', async ($, on) => {
   const clock = engine(on)
   await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
-  const plan = (first: string, second: string) =>
+  const plan = (first: 'pending' | 'in_progress' | 'completed', second: 'pending' | 'in_progress' | 'completed') =>
     $.tool.call({
       tool: 'TodoWrite',
       todos: [
-        { content: 'One', status: first },
-        { content: 'Two', status: second },
+        { content: 'One', status: first, activeForm: 'Working' },
+        { content: 'Two', status: second, activeForm: 'Working' },
       ],
     })
 
@@ -552,7 +659,7 @@ test('under a declared plan, Recent lists the latest calls and marks a failed on
   await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
   await $.turn.start({ text: 'fix it', turnId: 't1' })
 
-  await $.tool.call({ tool: 'TodoWrite', todos: [{ content: 'Fix it', status: 'in_progress' }] })
+  await $.tool.call({ tool: 'TodoWrite', todos: [{ content: 'Fix it', status: 'in_progress', activeForm: 'Working' }] })
   await $.tool.call({ tool: 'Read', file_path: 'C:\\repo\\notes.md' })
   await $.tool.call({ tool: 'Bash', command: 'exit 1' })
   const WIDE = { ...PANE, props: { ...PANE.props, bodyColumns: 60 } }
@@ -799,7 +906,7 @@ test('a session publishes what it is doing for the others, and takes it back whe
     cwd: '/home/me/repo',
     task: 'fix the login bug',
     state: 'working',
-    activity: 'Running npm test',
+    activity: 'Running tests',
   })
 
   await $.session.end({ reason: 'other' } as never)

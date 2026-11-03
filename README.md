@@ -12,8 +12,8 @@ is doing and how far along it is.
           Editing register.tsx  step 6 · 9 tools
  Steps    3 done · auto
   ✓ Read register.test.tsx ×2
-  ✓ Search for usage
-  ✓ Run claude plugin test .
+  ✓ Search usage +2
+  ✓ Run tests
   ◐ Edit register.tsx
     ━━━━━━━━━▛█▜─────────────  41%  0:12
  Files    ✎ register.tsx  ✎ README.md  ◦ index.d.ts
@@ -47,6 +47,10 @@ Skills
 - **Steps (auto).** The pane builds steps from what Claude actually does (each tool call, each stretch of thinking), and
   repeats of the same action merge into one counted step. Each step's title gets the full width of the pane, and the
   step in progress has its own bar and time beneath it.
+  Long commands read as plain words: `Run tests`, `Check git status`, `Push changes +2`. A chain of commands is named
+  after its most telling one, and `+2` means two more ran with it. A command with no template uses the short description
+  Claude already gave it. Long searches, web addresses and connector tools are shortened the same way (`Search TODO +1`,
+  `Fetch docs.example.com`, `Google Drive: search files`).
 - **Plan.** When Claude writes a todo list with Claude Code's own `TodoWrite` tool, the list replaces Steps, and the
   Claude bar becomes the progress through it.
 - **Recent.** Under a todo list, the last few actions Claude took, each with an icon for its kind and how long it took;

@@ -284,7 +284,7 @@ test('BUG R3.4/R2.1: a Recent row with a CJK title keeps its time in 40 columns'
   engine(on)
   await startIn($, '/r')
   await $.turn.start({ text: 'go', turnId: 't1' })
-  await $.tool.call({ tool: 'TodoWrite', todos: [{ content: 'step', status: 'in_progress' }] })
+  await $.tool.call({ tool: 'TodoWrite', todos: [{ content: 'step', status: 'in_progress', activeForm: 'Working' }] })
   await $.tool.call({ tool: 'Read', file_path: '/r/設定ファイルの説明書きと変更履歴.md' })
   const ui = await $.ui.mount(PANE)
   const row = (await ui.find({ type: 'Text', text: /^ {2}\S Read 設定/ }))?.text ?? ''

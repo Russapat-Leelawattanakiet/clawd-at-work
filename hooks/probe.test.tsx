@@ -193,7 +193,7 @@ test('BUG R2.5: a plan title cut at an emoji never leaves half a surrogate pair'
   // keeping 35, which splits the emoji.
   await $.tool.call({
     tool: 'TodoWrite',
-    todos: [{ content: `${'a'.repeat(34)}🚀 launch the thing`, status: 'pending' }],
+    todos: [{ content: `${'a'.repeat(34)}🚀 launch the thing`, status: 'pending', activeForm: 'Working' }],
   })
   const ui = await $.ui.mount(PANE)
   const row = (await ui.find({ type: 'Text', text: /aaaa/ }))?.text ?? ''
@@ -223,24 +223,24 @@ test('BUG R2.2: a redirect to /dev/null keeps its redirect, not just "null"', as
   engine(on)
   await start($)
   await $.turn.start({ text: 'go', turnId: 't1' })
-  await $.tool.call({ tool: 'Bash', command: 'npm test 2>/dev/null' })
+  await $.tool.call({ tool: 'Bash', command: 'mytool run 2>/dev/null' })
   const ui = await $.ui.mount({ ...PANE, props: { ...PANE.props, bodyColumns: 80 } })
-  const row = (await ui.find({ type: 'Text', text: /Run npm test/ }))?.text ?? ''
+  const row = (await ui.find({ type: 'Text', text: /Run mytool run/ }))?.text ?? ''
   await ui.unmount()
-  // Actual: 'Run npm test null'.
-  expect(row).not.toMatch(/Run npm test null/)
-  expect(row).toMatch(/Run npm test 2>/)
+  // Actual: 'Run mytool run null'.
+  expect(row).not.toMatch(/Run mytool run null/)
+  expect(row).toMatch(/Run mytool run 2>/)
 })
 
 test('BUG R2.2: a flag with a long path value keeps the flag', async ($, on) => {
   engine(on)
   await start($)
   await $.turn.start({ text: 'go', turnId: 't1' })
-  await $.tool.call({ tool: 'Bash', command: 'node app.js --config=/etc/myapp/conf.json' })
+  await $.tool.call({ tool: 'Bash', command: 'mytool app.js --config=/etc/myapp/conf.json' })
   const ui = await $.ui.mount({ ...PANE, props: { ...PANE.props, bodyColumns: 80 } })
-  const row = (await ui.find({ type: 'Text', text: /Run node app/ }))?.text ?? ''
+  const row = (await ui.find({ type: 'Text', text: /Run mytool app/ }))?.text ?? ''
   await ui.unmount()
-  // Actual: 'Run node app.js conf.json' (the flag is gone).
+  // Actual: 'Run mytool app.js conf.json' (the flag is gone).
   expect(row).toMatch(/--config=/)
 })
 
@@ -248,11 +248,11 @@ test('IMPROVE R2.2: quoted prose with slashes is not cut as a path', async ($, o
   engine(on)
   await start($)
   await $.turn.start({ text: 'go', turnId: 't1' })
-  await $.tool.call({ tool: 'Bash', command: 'git commit -m "Fix and/or tidy docs/api"' })
+  await $.tool.call({ tool: 'Bash', command: 'mytool commit -m "Fix and/or tidy docs/api"' })
   const ui = await $.ui.mount({ ...PANE, props: { ...PANE.props, bodyColumns: 80 } })
-  const row = (await ui.find({ type: 'Text', text: /Run git commit/ }))?.text ?? ''
+  const row = (await ui.find({ type: 'Text', text: /Run mytool commit/ }))?.text ?? ''
   await ui.unmount()
-  // Actual: 'Run git commit -m "api"'.
+  // Actual: 'Run mytool commit -m "api"'.
   expect(row).toMatch(/Fix and\/or/)
 })
 
@@ -260,13 +260,13 @@ test('OK R2.2: leading folder changes are dropped in cmd and PowerShell forms', 
   engine(on)
   await start($)
   await $.turn.start({ text: 'go', turnId: 't1' })
-  await $.tool.call({ tool: 'Bash', command: 'cd /d C:\\work\\repo && npm run build' })
-  await $.tool.call({ tool: 'PowerShell', command: "Set-Location -Path 'C:\\a b\\repo'; npm run lint" })
-  await $.tool.call({ tool: 'Bash', command: 'pushd /tmp/x && make check' })
+  await $.tool.call({ tool: 'Bash', command: 'cd /d C:\\work\\repo && mytool build' })
+  await $.tool.call({ tool: 'PowerShell', command: "Set-Location -Path 'C:\\a b\\repo'; mytool lint" })
+  await $.tool.call({ tool: 'Bash', command: 'pushd /tmp/x && mytool check' })
   const ui = await $.ui.mount({ ...PANE, props: { ...PANE.props, bodyColumns: 80 } })
-  expect(await ui.find({ type: 'Text', text: /Run npm run build/ })).toBeTruthy()
-  expect(await ui.find({ type: 'Text', text: /Run npm run lint/ })).toBeTruthy()
-  expect(await ui.find({ type: 'Text', text: /Run make check/ })).toBeTruthy()
+  expect(await ui.find({ type: 'Text', text: /Run mytool build/ })).toBeTruthy()
+  expect(await ui.find({ type: 'Text', text: /Run mytool lint/ })).toBeTruthy()
+  expect(await ui.find({ type: 'Text', text: /Run mytool check/ })).toBeTruthy()
   expect(await ui.find({ type: 'Text', text: /Set-Location|pushd|cd \/d/ })).toBeUndefined()
   await ui.unmount()
 })
@@ -277,11 +277,12 @@ test('IMPROVE R2.6/R7.4: a CRLF multi-line PowerShell command shows its first li
   engine(on)
   await start($)
   await $.turn.start({ text: 'go', turnId: 't1' })
-  await $.tool.call({ tool: 'PowerShell', command: 'npm test\r\nnpm run build' })
+  await $.tool.call({ tool: 'PowerShell', command: 'mytool one\r\nmytool two' })
   const ui = await $.ui.mount(PANE)
-  const row = (await ui.find({ type: 'Text', text: /Running npm test/ }))?.text ?? ''
+  const row = (await ui.find({ type: 'Text', text: /Running mytool one/ }))?.text ?? ''
   await ui.unmount()
-  // Actual: 'Running npm test\r  step 0 · 1 tool' - a carriage return mid-line.
+  // Actual: 'Running mytool one\r  step 0 · 1 tool' - a carriage return mid-line.
+  expect(row).toMatch(/Running mytool one/)
   expect(row).not.toMatch(/\r/)
 })
 
@@ -289,10 +290,10 @@ test('OK R2.6: a multi-line Bash command shows only its first line', async ($, o
   engine(on)
   await start($)
   await $.turn.start({ text: 'go', turnId: 't1' })
-  await $.tool.call({ tool: 'Bash', command: 'npm test\nnpm run build' })
+  await $.tool.call({ tool: 'Bash', command: 'mytool one\nmytool two' })
   const ui = await $.ui.mount(PANE)
-  expect(await ui.find({ type: 'Text', text: /npm run build/ })).toBeUndefined()
-  expect(await ui.find({ type: 'Text', text: /Running npm test/ })).toBeTruthy()
+  expect(await ui.find({ type: 'Text', text: /mytool two/ })).toBeUndefined()
+  expect(await ui.find({ type: 'Text', text: /Running mytool one/ })).toBeTruthy()
   await ui.unmount()
 })
 
@@ -421,7 +422,7 @@ test('OK R4.2: an agent dropdown shows readable targets (cd dropped, paths cut)'
   await $.tool.call({ tool: 'Read', file_path: '/home/me/repo/src/deep/file.ts', agentId: 'a1' })
   const ui = await $.ui.mount(PANE)
   await ui.press({ key: 'agent-tu1' })
-  expect(await ui.find({ type: 'Text', text: /Bash\s+npm test/ })).toBeTruthy()
+  expect(await ui.find({ type: 'Text', text: /Bash\s+Run tests/ })).toBeTruthy()
   expect(await ui.find({ type: 'Text', text: /Read\s+file\.ts/ })).toBeTruthy()
   expect(await ui.find({ type: 'Text', text: /Users|home/ })).toBeUndefined()
   await ui.unmount()
@@ -435,7 +436,7 @@ test('BUG R4.3: every loaded skill is listed or counted, even in a short pane', 
   await $.turn.start({ text: 'go', turnId: 't1' })
   await $.tool.call({
     tool: 'TodoWrite',
-    todos: ['A', 'B', 'C', 'D'].map((title, i) => ({ content: title, status: i === 0 ? 'in_progress' : 'pending' })),
+    todos: ['A', 'B', 'C', 'D'].map((title, i) => ({ content: title, status: i === 0 ? 'in_progress' : 'pending', activeForm: 'Working' })),
   })
   for (const skill of ['alpha', 'beta', 'gamma']) await $.tool.call({ tool: 'Skill', skill })
   const SHORT = { ...PANE, props: { ...PANE.props, scroll: { offset: 0, bodyRows: 24 } } }
@@ -476,11 +477,11 @@ test('OK R1.3/R3.4: a denied call is a snag and is marked ✗ in Recent', async 
   engine(on)
   await start($)
   await $.turn.start({ text: 'go', turnId: 't1' })
-  await $.tool.call({ tool: 'TodoWrite', todos: [{ content: 'Do it', status: 'in_progress' }] })
+  await $.tool.call({ tool: 'TodoWrite', todos: [{ content: 'Do it', status: 'in_progress', activeForm: 'Working' }] })
   await $.tool.call({ tool: 'Bash', command: 'rm -rf deny' })
   const ui = await $.ui.mount({ ...PANE, props: { ...PANE.props, bodyColumns: 60 } })
   expect(await ui.find({ type: 'Text', text: /^hit a snag$/ })).toBeTruthy()
-  expect((await ui.find({ type: 'Text', text: /Run rm/ }))?.text).toMatch(/^  ✗ Run rm/)
+  expect((await ui.find({ type: 'Text', text: /Delete files/ }))?.text).toMatch(/^  ✗ Delete files/)
   await ui.unmount()
 })
 
@@ -506,7 +507,7 @@ test('OK R7.2: odd plan and tool inputs never crash the pane', async ($, on) => 
   await $.turn.start({ text: 'go', turnId: 't1' })
   const odd = [
     { tool: 'TodoWrite', todos: 'not a list' },
-    { tool: 'TodoWrite', todos: [null, 3, { content: 7 }, { content: '' }, { content: 'ok', status: 'weird' }] },
+    { tool: 'TodoWrite', todos: [null, 3, { content: 7 }, { content: '' }, { content: 'ok', status: 'weird', activeForm: 'Working' }] },
     { tool: 'TodoWrite', todos: null },
     { tool: 'SomeUnknownTool', command: 42, file_path: null, prompt: '' },
     { tool: 'Read', file_path: '' },
@@ -517,7 +518,7 @@ test('OK R7.2: odd plan and tool inputs never crash the pane', async ($, on) => 
   for (const input of odd) await $.tool.call(input as never)
   await $.tool.call({
     tool: 'TodoWrite',
-    todos: Array.from({ length: 30 }, (_, i) => ({ content: `Step ${i + 1}`, status: 'pending' })),
+    todos: Array.from({ length: 30 }, (_, i) => ({ content: `Step ${i + 1}`, status: 'pending', activeForm: 'Working' })),
   })
   const ui = await $.ui.mount(PANE)
   expect((await ui.find({ type: 'Text', text: /^ Plan / }))?.text).toMatch(/0\/20 steps done/)
@@ -557,7 +558,7 @@ test('OK R6.1: a new prompt clears Recent, Files, Done, plan and finished skills
   engine(on, status)
   await start($)
   await $.turn.start({ text: 'go', turnId: 't1' })
-  await $.tool.call({ tool: 'TodoWrite', todos: [{ content: 'Do it', status: 'in_progress' }] })
+  await $.tool.call({ tool: 'TodoWrite', todos: [{ content: 'Do it', status: 'in_progress', activeForm: 'Working' }] })
   await $.tool.call({ tool: 'Read', file_path: 'C:\\repo\\a.md' })
   await $.tool.call({ tool: 'Skill', skill: 'one' })
   await $.agent.spawn(SPAWN)
@@ -580,7 +581,7 @@ test('OK R3.3: the Claude bar and an active step hold below 100% while work runs
   let ui = await $.ui.mount(PANE)
   expect((await ui.find({ type: 'Text', text: /^ Claude / }))?.text).toMatch(/ 95%/)
   await ui.unmount()
-  await $.tool.call({ tool: 'TodoWrite', todos: [{ content: 'Only', status: 'in_progress' }] })
+  await $.tool.call({ tool: 'TodoWrite', todos: [{ content: 'Only', status: 'in_progress', activeForm: 'Working' }] })
   await clock.set(1_000 + 4 * 60_000)
   ui = await $.ui.mount(PANE)
   expect((await ui.find({ type: 'Text', text: /^ Claude / }))?.text).toMatch(/ 95%/)
@@ -606,10 +607,10 @@ test('IMPROVE R3.2/R1: without a plan, a failed call is not shown as a done ✓ 
   await $.tool.call({ tool: 'Bash', command: 'npm test; exit 1' })
   await $.tool.call({ tool: 'Read', file_path: 'C:\\repo\\a.md' })
   const ui = await $.ui.mount(PANE)
-  const row = (await ui.find({ type: 'Text', text: /Run npm test/ }))?.text ?? ''
+  const row = (await ui.find({ type: 'Text', text: /Run tests/ }))?.text ?? ''
   await ui.unmount()
-  // Actual: '  ✓ Run npm test; exit 1' - the failure shows nowhere in Steps.
-  expect(row).not.toMatch(/✓/)
+  // Actual: '  ✓ Run tests' - the failure shows nowhere in Steps.
+  expect(row).toMatch(/✗ Run tests/)
 })
 
 test('IMPROVE R3.2/R2.4: a merged step keeps its ×N count when its title is cut', async ($, on) => {

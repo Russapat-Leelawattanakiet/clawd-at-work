@@ -147,11 +147,11 @@ test('IMPROVE R6.3/R5.2: after /clear the new session starts its own token count
 // ------------------------------------------------------------ R2.2 shell commands
 
 for (const [name, command, kept] of [
-  ['a sed substitution', "sed -i 's/oldName/newName/g' src/app.ts", 's/oldName/newName/g'],
-  ['a grep alternation', 'grep -rn "TODO\\|FIXME\\|XXX" src', 'TODO\\|FIXME'],
-  ['a regex with escapes', 'rg "function\\s+\\w+" hooks', 'function'],
-  ['printf escapes', "printf 'a\\tb\\tc\\n' > out.txt", 'a\\tb'],
-  ['a bash &> redirect', 'npm test &>/dev/null', '&>/dev/null'],
+  ['a sed substitution', "mytool -i 's/oldName/newName/g' src/app.ts", 's/oldName/newName/g'],
+  ['a grep alternation', 'mytool -rn "TODO\\|FIXME\\|XXX" src', 'TODO\\|FIXME'],
+  ['a regex with escapes', 'mytool "function\\s+\\w+" hooks', 'function'],
+  ['printf escapes', "mytool 'a\\tb\\tc\\n' > out.txt", 'a\\tb'],
+  ['a bash &> redirect', 'mytool run &>/dev/null', '&>/dev/null'],
 ] as const) {
   test(`BUG R2.2: ${name} is not cut as if it were a path`, async ($, on) => {
     engine(on)
@@ -161,8 +161,8 @@ for (const [name, command, kept] of [
     const ui = await $.ui.mount(WIDE)
     const row = (await ui.find({ type: 'Text', text: /^ {2}\S Run / }))?.text ?? ''
     await ui.unmount()
-    // Actual: 'Run sed -i g app.ts', 'Run grep -rn |XXX src', 'Run rg w+ hooks',
-    // 'Run printf n > out.txt', 'Run npm test null'.
+    // Actual: 'Run mytool -i g app.ts', 'Run mytool -rn |XXX src', 'Run mytool w+ hooks',
+    // 'Run mytool n > out.txt', 'Run mytool run null'.
     expect(row).toContain(kept)
   })
 }
@@ -171,13 +171,13 @@ test('OK R2.2: long paths are still cut, short ones and URLs kept', async ($, on
   engine(on)
   await start($)
   await $.turn.start({ text: 'go', turnId: 't1' })
-  await $.tool.call({ tool: 'Bash', command: 'cd C:\\Users\\me\\repo && node C:\\Users\\me\\tools\\gen.js x.io/a 2>/dev/null' })
-  await $.tool.call({ tool: 'Bash', command: 'curl https://x.io/a/b/c -o /tmp/dl/out/f.bin' })
+  await $.tool.call({ tool: 'Bash', command: 'cd C:\\Users\\me\\repo && mytool C:\\Users\\me\\tools\\gen.js x.io/a 2>/dev/null' })
+  await $.tool.call({ tool: 'Bash', command: 'mytool https://x.io/a/b/c -o /tmp/dl/out/f.bin' })
   const ui = await $.ui.mount(WIDE)
   const rows = (await ui.findAll({ type: 'Text', text: /^ {2}\S Run / })).map(t => t.text)
   await ui.unmount()
-  expect(rows[0]).toBe('  ✓ Run node gen.js x.io/a 2>/dev/null')
-  expect(rows[1]).toBe('  ✓ Run curl https://x.io/a/b/c -o f.bin')
+  expect(rows[0]).toBe('  ✓ Run mytool gen.js x.io/a 2>/dev/null')
+  expect(rows[1]).toBe('  ✓ Run mytool https://x.io/a/b/c -o f.bin')
 })
 
 // ------------------------------------------------------------ R1.4 Done line
@@ -260,7 +260,7 @@ test('IMPROVE R2.4: in a wide pane a plan title gets the full width before it is
   engine(on)
   await start($)
   const title = 'Update the README install section with the new marketplace command'
-  await $.tool.call({ tool: 'TodoWrite', todos: [{ content: title, status: 'pending' }] })
+  await $.tool.call({ tool: 'TodoWrite', todos: [{ content: title, status: 'pending', activeForm: 'Working' }] })
   const ui = await $.ui.mount({ ...PANE, props: { ...PANE.props, bodyColumns: 100 } })
   const row = (await ui.find({ type: 'Text', text: /Update the README/ }))?.text ?? ''
   await ui.unmount()
