@@ -10,16 +10,12 @@ is doing and how far along it is.
 
  Claude   ━━━━━━━━━━━━━━▛█▜──────────  52%  0:42
           Editing register.tsx  step 6 · 9 tools
- Plan     2/4 steps done
-  ✓ Read the code
-  ✓ Write the README
-  ◐ Run the tests
+ Steps    3 done · auto
+  ✓ Read register.test.tsx ×2
+  ✓ Search for usage
+  ✓ Run claude plugin test .
+  ◐ Edit register.tsx
     ━━━━━━━━━▛█▜─────────────  41%  0:12
-  ○ Commit
- Recent   9 actions
-  ✓ Run claude plugin test .              1.6s
-  ▤ Read register.test.tsx                0.1s
-  ✎ Edit register.tsx
  Files    ✎ register.tsx  ✎ README.md  ◦ index.d.ts
 
 Agents
@@ -48,13 +44,13 @@ Skills
 - **Done.** When a turn ends, the Claude bar gives way to a one-line summary that stays until your next prompt, such as
   `Done ✓ 2:14 · 2 files edited · 12 tools`, with any failed calls counted in red (`Stopped` if you interrupted it, `Failed` if an API error or a refusal
   ended it).
-- **Plan.** The mod gives Claude a `plan` tool (`mcp__clawd-at-work__plan`) and a short note in its system prompt asking
-  it to list its steps for any multi-step task. Each step's title gets the full width of the pane, the step in progress
-  has its own bar and time beneath it, and the Claude bar becomes the real progress through the plan. Claude Code's own `TodoWrite` list drives the plan too.
-- **Steps (auto).** When Claude has not declared a plan, the pane builds steps from what it actually does (each tool
-  call, each stretch of thinking), and repeats of the same action merge into one counted step.
-- **Recent.** Under a declared plan, the last few actions Claude took, each with an icon for its kind and how long it
-  took; a failed one is marked with a red ✗.
+- **Steps (auto).** The pane builds steps from what Claude actually does (each tool call, each stretch of thinking), and
+  repeats of the same action merge into one counted step. Each step's title gets the full width of the pane, and the
+  step in progress has its own bar and time beneath it.
+- **Plan.** When Claude writes a todo list with Claude Code's own `TodoWrite` tool, the list replaces Steps, and the
+  Claude bar becomes the progress through it.
+- **Recent.** Under a todo list, the last few actions Claude took, each with an icon for its kind and how long it took;
+  a failed one is marked with a red ✗.
 - **Files.** The files Claude has edited (`✎`, first) and read (`◦`) since your last prompt, with `+N` for the ones that
   don't fit. Files a subagent edits are listed too; files it only reads are not.
 - **Agents.** Every subagent Claude starts, newest first, each in its own color, with an estimated progress bar, run
@@ -70,6 +66,10 @@ Skills
 A permission prompt (Claude asking to run a command) still reads as the action itself, not "waiting for you": Claude
 Code tells the mod when the dialog opens but not when you answer it.
 
+The mod costs no tokens: it adds no tool and no text for Claude to read, and it never calls a model. Everything in the
+pane comes from events Claude Code already sends, so the bars are estimates rather than Claude's own account of its
+progress.
+
 Progress estimates are learned: the mod remembers how long each agent type, turn and step usually takes (kept across
 sessions), so the bars get more accurate the more you use it. An estimate stays below 100% until the work really ends.
 
@@ -80,7 +80,8 @@ over. Agents still running carry on.
 
 - [Claude Code](https://claude.com/claude-code) in a terminal (Windows, macOS or Linux).
 - The pane docks beside the chat in the fullscreen terminal layout. It opens by itself when the window is wide enough
-  (about 110–144 columns); in a narrower window it waits until you widen it or run `/clawd-at-work`.
+  (about 110–144 columns); in a narrower window it waits until you widen it or run `/clawd-at-work`. If it shows at
+  the bottom instead, see [Pane shows at the bottom instead of the side?](#pane-shows-at-the-bottom-instead-of-the-side).
 - This repository is **private**: to install, you need read access to it on GitHub, and your computer needs a git
   credential for github.com (an SSH key, or `gh auth login` followed by `gh auth setup-git`). The install never asks
   for a password.
@@ -113,7 +114,28 @@ There is nothing to set up: the pane opens when a session starts and updates by 
 | --- | --- |
 | Reopen the pane after closing it | Type `/clawd-at-work` |
 | See an agent's tool calls | Click its row in **Agents** (click again to close) |
-| Get a plan bar for a task | Just ask for a multi-step task; Claude calls the `plan` tool itself |
+
+### Pane shows at the bottom instead of the side?
+
+Claude Code docks the pane beside the chat only in its fullscreen layout. On the main screen it puts the pane above
+the prompt. The mod cannot change this, because a plugin cannot set it for you; it's a Claude Code setting. This happens
+often in WSL, Linux terminals and tmux. To get the side pane:
+
+1. Turn on the fullscreen layout. Type `/tui fullscreen` to keep it on, or add this to `~/.claude/settings.json`:
+
+   ```json
+   {
+     "env": { "CLAUDE_CODE_NO_FLICKER": "1" },
+     "tui": "fullscreen"
+   }
+   ```
+
+   For a single session, start Claude Code with `CLAUDE_CODE_NO_FLICKER=1 claude`.
+2. If you use tmux (`echo $TMUX` prints something), know that Claude Code uses the main screen there by default. Set
+   the variable above, or run `claude` outside tmux.
+3. Make the window wide enough: the pane opens by itself from about 144 columns, or 110 once you have opened it
+   yourself. In a narrower window, type `/clawd-at-work`. Drag the pane's edge to resize it (up to 45% of the
+   terminal).
 
 ## Update and uninstall
 
@@ -143,7 +165,7 @@ claude plugin test .
 
 Files:
 
-- `hooks/register.tsx`: the mod (hooks, pane drawing, the `plan` tool)
+- `hooks/register.tsx`: the mod (hooks, pane drawing)
 - `hooks/register.test.tsx`: tests
 - `hooks/probe*.test.tsx`: tests from the requirement test rounds, one file per round
 - `REQUIREMENTS.md`: what the pane must do, with IDs the tests refer to

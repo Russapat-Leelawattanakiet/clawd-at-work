@@ -34,9 +34,10 @@ Each requirement has an ID so test reports can point at it. "Narrow" means a 40-
 
 ## 3. Progress
 
-- **R3.1** When Claude declares a plan (the `plan` tool or `TodoWrite`), each step shows ✓ done, ○ pending, or a
+- **R3.1** When Claude writes a todo list (`TodoWrite`), it shows as a plan: each step shows ✓ done, ○ pending, or a
   spinner while active, and the active step has a bar, percent and elapsed time. The Claude bar is the plan's progress.
-- **R3.2** Without a plan, the pane builds steps from what Claude does, merging repeats of the same action (`×2`).
+- **R3.2** Without a plan, the pane builds steps from what Claude does, merging repeats of the same action (`×2`). The
+  Claude bar then shows a time estimate.
 - **R3.3** Progress estimates never reach 100% until the work really ends, and learn typical times across sessions.
 - **R3.4** Under a declared plan, a Recent list shows the latest actions with their time; failed ones are marked ✗.
 

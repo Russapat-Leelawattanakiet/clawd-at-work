@@ -61,21 +61,10 @@ const TARGET_FIELDS = [
 ]
 const TARGET_MAX = 40
 
-// The plan tool Claude calls to declare its steps; the model sees it as
-// mcp__<plugin>__plan. A short system-prompt note asks Claude to use it.
-const PLAN_TOOL = 'plan'
-const PLAN_TOOL_FULL = 'mcp__clawd-at-work__plan'
 const MAX_STEPS = 20
 // Plan titles are kept up to this long; the pane cuts them to its width.
 const STEP_MAX = 200
 const SHOWN_STEPS = 8
-const PLAN_NOTE = [
-  'The person watches a "Claude at work" pane that shows your progress as a bar.',
-  `For any task with two or more steps, call the ${PLAN_TOOL_FULL} tool before starting,`,
-  'listing every step you intend to take as a short title (status "pending", the first one "active").',
-  'Call it again with the whole list each time a step starts or finishes, so the bar stays true.',
-  'Mark every step "done" before your final answer. Skip the tool for one-step replies.',
-].join(' ')
 
 // Progress estimate: elapsed / typical run time of that agent type, held
 // below 100% until the agent really ends. First runs use these defaults.
@@ -349,7 +338,7 @@ const toolName = (name: string) =>
 const shortTool = (name: string) =>
   name.startsWith('mcp__') ? (name.split('__').at(-1) ?? name).replace(/_/g, ' ') : name
 
-// Steps from a plan or TodoWrite call: titles trimmed to one short line,
+// Steps from a TodoWrite call: titles trimmed to one short line,
 // unknown statuses read as pending, at most MAX_STEPS kept.
 const toSteps = (raw: unknown, title: string, status: (s: unknown) => PlanStep['status']): PlanStep[] =>
   (Array.isArray(raw) ? raw : []).slice(0, MAX_STEPS).flatMap(item => {
@@ -427,7 +416,6 @@ const TOOLS: Record<string, { action: string; doing: string; mood: Mood }> = {
   Artifact: { action: 'Publish page', doing: 'Publishing page', mood: 'tool' },
   ToolSearch: { action: 'Load tools', doing: 'Loading tools', mood: 'search' },
   TodoWrite: { action: 'Update the plan', doing: 'Updating the plan', mood: 'think' },
-  [PLAN_TOOL_FULL]: { action: 'Update the plan', doing: 'Updating the plan', mood: 'think' },
 }
 const withTarget = (words: string, target: string) => `${words}${target ? ` ${target}` : ''}`
 const actionTitle = (tool: string, target: string) => withTarget(TOOLS[tool]?.action ?? toolName(tool), target)
@@ -875,36 +863,6 @@ export const register: Register = on => {
     })
     void $.ui.open({ id: PANE, title: TITLE })
 
-    // The plan tool, listed up front (not behind ToolSearch) so Claude reaches for it.
-    await $.tool
-      .register({
-        name: PLAN_TOOL,
-        description:
-          'Show your step-by-step plan for the current task in the "Claude at work" pane, ' +
-          'where it drives the progress bar. Pass the whole list every time: each step a short ' +
-          'title and a status (pending, active or done). Call it when you start a multi-step ' +
-          'task and again whenever a step starts or finishes.',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            steps: {
-              type: 'array',
-              items: {
-                type: 'object',
-                properties: {
-                  title: { type: 'string', description: 'What the step does, in a few words' },
-                  status: { type: 'string', enum: ['pending', 'active', 'done'] },
-                },
-                required: ['title', 'status'],
-              },
-            },
-          },
-          required: ['steps'],
-        },
-        isDeferred: false,
-      })
-      .catch(() => {})
-
     // Bring the learned averages from earlier sessions into this one.
     const saved = await $.store.get(STORE_KEY).catch(() => undefined)
     if (saved && typeof saved === 'object') await update($, typical, () => saved as Typical)
@@ -1025,30 +983,10 @@ export const register: Register = on => {
     return out
   }).catch(($, e, next) => next(e))
 
-  // Ask Claude, in its system prompt, to keep the plan tool up to date.
-  on('prompt.compose', async ($, e, next) => {
-    const composed = await next(e)
-    return {
-      sections: [...composed.sections, { id: 'clawd-at-work:plan', text: PLAN_NOTE, scope: 'session' }],
-    }
-  }).catch(($, e, next) => next(e))
-
-  // The plan tool: Claude's declared steps replace the pane's plan. Only the
-  // main conversation's plan is shown; a subagent's call changes nothing.
-  // A registered tool's result must be text (the engine refuses an object).
-  const answer = (text: string) => ({ result: text, text })
-  on('tool.call', { tool: PLAN_TOOL_FULL }, async ($, e) => {
-    if (e.agentId !== undefined) return answer("The pane shows the main conversation's plan only; nothing changed.")
-    const steps = toSteps((e as unknown as Record<string, unknown>).steps, 'title', s =>
-      s === 'active' || s === 'done' ? s : 'pending',
-    )
-    await applyPlan($, steps)
-    const done = steps.filter(s => s.status === 'done').length
-    return answer(`Plan shown: ${done}/${steps.length} steps done.`)
-    // A pane problem must never fail Claude's call: answer that it was not shown.
-  }).catch(() => answer('The plan could not be shown in the pane; carry on with the task.'))
-
-  // Claude Code's own todo list, where a session has it, drives the plan too.
+  // The mod adds nothing the model reads, so it costs no tokens: no tool, no
+  // system-prompt note. Steps come from what Claude does (auto steps), or from
+  // Claude Code's own todo list where a session has it. Only the main
+  // conversation's list is shown; a subagent's changes nothing.
   on('tool.call', { tool: 'TodoWrite' }, async ($, e, next) => {
     if (e.agentId === undefined) {
       const steps = toSteps(e.todos, 'content', s =>
@@ -1152,7 +1090,7 @@ export const register: Register = on => {
   // Every tool call inside an agent's loop is counted on that agent's row
   // and listed in its dropdown, running until the tool answers. A main-loop
   // call shows under the Claude bar instead, and is an auto step until it
-  // answers (the plan tool itself is not one: it is the plan).
+  // answers (TodoWrite itself is not one: it is the plan).
   on('tool.call', async ($, e, next) => {
     const loop = e.agentId
     const input = e as unknown as Record<string, unknown>
@@ -1160,7 +1098,7 @@ export const register: Register = on => {
       const target = targetOf(input)
       const mood = moodOf(e.tool)
       await update($, main, m => ({ ...m, tools: m.tools + 1, mood, activity: doingTitle(e.tool, target) }))
-      if (e.tool === PLAN_TOOL_FULL) return next(e)
+      if (e.tool === 'TodoWrite') return next(e)
       // Step, feed and file bookkeeping never gets in the way of the call itself.
       const id = e.tool_use_id
       await startAuto($, 'tool', `${e.tool}:${target}`, actionTitle(e.tool, target)).catch(() => {})

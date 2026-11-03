@@ -162,8 +162,8 @@ declare module 'claude-code' {
       busySince: number | null
       // Animation frame counter, bumped by the ticker while busy.
       frame: number
-      // The steps Claude declared for this task, through its plan tool; empty
-      // until it declares some, cleared by each new prompt.
+      // The steps from Claude Code's own todo list (TodoWrite); empty until a
+      // list is written, cleared by each new prompt.
       plan: PlanStep[]
       // Steps made automatically from what the main loop actually does (each
       // tool call, each stretch of thinking or writing), shown when no plan is

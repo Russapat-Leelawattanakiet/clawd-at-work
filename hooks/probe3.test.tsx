@@ -59,7 +59,6 @@ const engine = (
   sharedStore(on, kept)
   let spawned = 0
   on('command.register', () => ({ value: { command: 'clawd-at-work' } }))
-  on('tool.register', () => ({ value: { tool: 'mcp__clawd-at-work__plan' } }))
   on('ui.open', () => ({ value: { isPlaced: true } }))
   on('session.start', (_, e) => ({ cwd: e.cwd }))
   on('session.end', (_, e) => ({ sessionId: e.sessionId }))
@@ -285,7 +284,7 @@ test('BUG R3.4/R2.1: a Recent row with a CJK title keeps its time in 40 columns'
   engine(on)
   await startIn($, '/r')
   await $.turn.start({ text: 'go', turnId: 't1' })
-  await $.tool.call({ tool: 'mcp__clawd-at-work__plan', steps: [{ title: 'step', status: 'active' }] })
+  await $.tool.call({ tool: 'TodoWrite', todos: [{ content: 'step', status: 'in_progress' }] })
   await $.tool.call({ tool: 'Read', file_path: '/r/設定ファイルの説明書きと変更履歴.md' })
   const ui = await $.ui.mount(PANE)
   const row = (await ui.find({ type: 'Text', text: /^ {2}\S Read 設定/ }))?.text ?? ''

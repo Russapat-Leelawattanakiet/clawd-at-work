@@ -49,7 +49,6 @@ const engine = (on: On, status: { now: AgentStatus } = { now: 'running' }, store
   if (stored) mock.store(on, stored)
   let spawned = 0
   on('command.register', () => ({ value: { command: 'clawd-at-work' } }))
-  on('tool.register', () => ({ value: { tool: 'mcp__clawd-at-work__plan' } }))
   on('ui.open', () => ({ value: { isPlaced: true } }))
   on('session.start', (_, e) => ({ cwd: e.cwd }))
   on('session.end', (_, e) => ({ sessionId: e.sessionId }))
@@ -261,7 +260,7 @@ test('IMPROVE R2.4: in a wide pane a plan title gets the full width before it is
   engine(on)
   await start($)
   const title = 'Update the README install section with the new marketplace command'
-  await $.tool.call({ tool: 'mcp__clawd-at-work__plan', steps: [{ title, status: 'pending' }] })
+  await $.tool.call({ tool: 'TodoWrite', todos: [{ content: title, status: 'pending' }] })
   const ui = await $.ui.mount({ ...PANE, props: { ...PANE.props, bodyColumns: 100 } })
   const row = (await ui.find({ type: 'Text', text: /Update the README/ }))?.text ?? ''
   await ui.unmount()

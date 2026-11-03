@@ -50,7 +50,6 @@ const engine = (on: On, status: { now: AgentStatus } = { now: 'running' }) => {
   mock.store(on, {})
   let spawned = 0
   on('command.register', () => ({ value: { command: 'clawd-at-work' } }))
-  on('tool.register', () => ({ value: { tool: 'mcp__clawd-at-work__plan' } }))
   on('ui.open', () => ({ value: { isPlaced: true } }))
   on('session.start', (_, e) => ({ cwd: e.cwd }))
   on('session.usage', () => ({ value: { startedAt: 0, context: { window: 200_000 }, rateLimits: [] } }))
@@ -193,8 +192,8 @@ test('BUG R2.5: a plan title cut at an emoji never leaves half a surrogate pair'
   // 34 letters then an emoji: at 40 columns the title is cut at 36 code units,
   // keeping 35, which splits the emoji.
   await $.tool.call({
-    tool: 'mcp__clawd-at-work__plan',
-    steps: [{ title: `${'a'.repeat(34)}🚀 launch the thing`, status: 'pending' }],
+    tool: 'TodoWrite',
+    todos: [{ content: `${'a'.repeat(34)}🚀 launch the thing`, status: 'pending' }],
   })
   const ui = await $.ui.mount(PANE)
   const row = (await ui.find({ type: 'Text', text: /aaaa/ }))?.text ?? ''
@@ -435,8 +434,8 @@ test('BUG R4.3: every loaded skill is listed or counted, even in a short pane', 
   await start($)
   await $.turn.start({ text: 'go', turnId: 't1' })
   await $.tool.call({
-    tool: 'mcp__clawd-at-work__plan',
-    steps: ['A', 'B', 'C', 'D'].map((title, i) => ({ title, status: i === 0 ? 'active' : 'pending' })),
+    tool: 'TodoWrite',
+    todos: ['A', 'B', 'C', 'D'].map((title, i) => ({ content: title, status: i === 0 ? 'in_progress' : 'pending' })),
   })
   for (const skill of ['alpha', 'beta', 'gamma']) await $.tool.call({ tool: 'Skill', skill })
   const SHORT = { ...PANE, props: { ...PANE.props, scroll: { offset: 0, bodyRows: 24 } } }
@@ -477,7 +476,7 @@ test('OK R1.3/R3.4: a denied call is a snag and is marked ✗ in Recent', async 
   engine(on)
   await start($)
   await $.turn.start({ text: 'go', turnId: 't1' })
-  await $.tool.call({ tool: 'mcp__clawd-at-work__plan', steps: [{ title: 'Do it', status: 'active' }] })
+  await $.tool.call({ tool: 'TodoWrite', todos: [{ content: 'Do it', status: 'in_progress' }] })
   await $.tool.call({ tool: 'Bash', command: 'rm -rf deny' })
   const ui = await $.ui.mount({ ...PANE, props: { ...PANE.props, bodyColumns: 60 } })
   expect(await ui.find({ type: 'Text', text: /^hit a snag$/ })).toBeTruthy()
@@ -506,8 +505,8 @@ test('OK R7.2: odd plan and tool inputs never crash the pane', async ($, on) => 
   await start($)
   await $.turn.start({ text: 'go', turnId: 't1' })
   const odd = [
-    { tool: 'mcp__clawd-at-work__plan', steps: 'not a list' },
-    { tool: 'mcp__clawd-at-work__plan', steps: [null, 3, { title: 7 }, { title: '' }, { title: 'ok', status: 'weird' }] },
+    { tool: 'TodoWrite', todos: 'not a list' },
+    { tool: 'TodoWrite', todos: [null, 3, { content: 7 }, { content: '' }, { content: 'ok', status: 'weird' }] },
     { tool: 'TodoWrite', todos: null },
     { tool: 'SomeUnknownTool', command: 42, file_path: null, prompt: '' },
     { tool: 'Read', file_path: '' },
@@ -517,13 +516,13 @@ test('OK R7.2: odd plan and tool inputs never crash the pane', async ($, on) => 
   ]
   for (const input of odd) await $.tool.call(input as never)
   await $.tool.call({
-    tool: 'mcp__clawd-at-work__plan',
-    steps: Array.from({ length: 30 }, (_, i) => ({ title: `Step ${i + 1}`, status: 'pending' })),
+    tool: 'TodoWrite',
+    todos: Array.from({ length: 30 }, (_, i) => ({ content: `Step ${i + 1}`, status: 'pending' })),
   })
   const ui = await $.ui.mount(PANE)
   expect((await ui.find({ type: 'Text', text: /^ Plan / }))?.text).toMatch(/0\/20 steps done/)
   await ui.unmount()
-  await $.tool.call({ tool: 'mcp__clawd-at-work__plan', steps: [] })
+  await $.tool.call({ tool: 'TodoWrite', todos: [] })
   const ui2 = await $.ui.mount(PANE)
   expect(await ui2.find({ type: 'Text', text: /^Agents/ })).toBeTruthy()
   await ui2.unmount()
@@ -558,7 +557,7 @@ test('OK R6.1: a new prompt clears Recent, Files, Done, plan and finished skills
   engine(on, status)
   await start($)
   await $.turn.start({ text: 'go', turnId: 't1' })
-  await $.tool.call({ tool: 'mcp__clawd-at-work__plan', steps: [{ title: 'Do it', status: 'active' }] })
+  await $.tool.call({ tool: 'TodoWrite', todos: [{ content: 'Do it', status: 'in_progress' }] })
   await $.tool.call({ tool: 'Read', file_path: 'C:\\repo\\a.md' })
   await $.tool.call({ tool: 'Skill', skill: 'one' })
   await $.agent.spawn(SPAWN)
@@ -581,7 +580,7 @@ test('OK R3.3: the Claude bar and an active step hold below 100% while work runs
   let ui = await $.ui.mount(PANE)
   expect((await ui.find({ type: 'Text', text: /^ Claude / }))?.text).toMatch(/ 95%/)
   await ui.unmount()
-  await $.tool.call({ tool: 'mcp__clawd-at-work__plan', steps: [{ title: 'Only', status: 'active' }] })
+  await $.tool.call({ tool: 'TodoWrite', todos: [{ content: 'Only', status: 'in_progress' }] })
   await clock.set(1_000 + 4 * 60_000)
   ui = await $.ui.mount(PANE)
   expect((await ui.find({ type: 'Text', text: /^ Claude / }))?.text).toMatch(/ 95%/)

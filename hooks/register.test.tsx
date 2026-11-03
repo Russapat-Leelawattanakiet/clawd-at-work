@@ -52,7 +52,6 @@ const engine = (
   mock.store(on, stored)
   let spawned = 0
   on('command.register', () => ({ value: { command: 'clawd-at-work' } }))
-  on('tool.register', () => ({ value: { tool: 'mcp__clawd-at-work__plan' } }))
   on('ui.open', () => ({ value: { isPlaced: true } }))
   on('session.start', (_, e) => ({ cwd: e.cwd }))
   on('session.usage', () => ({ value: { startedAt: 0, context: { window: 200_000 }, rateLimits: [] } }))
@@ -122,8 +121,8 @@ test('in a short pane every running agent still shows, one line each', async ($,
   await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
   await $.turn.start({ text: 'two helpers', turnId: 't1' })
   await $.tool.call({
-    tool: 'mcp__clawd-at-work__plan',
-    steps: ['Read', 'Send helpers', 'Merge', 'Publish'].map((title, i) => ({ title, status: i === 1 ? 'active' : 'pending' })),
+    tool: 'TodoWrite',
+    todos: ['Read', 'Send helpers', 'Merge', 'Publish'].map((title, i) => ({ content: title, status: i === 1 ? 'in_progress' : 'pending' })),
   })
   await $.agent.spawn(SPAWN)
   await $.turn.start({ text: '', turnId: 'g1', agentId: 'f1' })
@@ -263,18 +262,15 @@ test('each plan step has its own bar and they drive the Claude bar', async ($, o
   await $.turn.start({ text: 'build it', turnId: 't1' })
 
   // One step done, one active, two pending.
-  const ran = await $.tool.call({
-    tool: 'mcp__clawd-at-work__plan',
-    steps: [
-      { title: 'Read the code', status: 'done' },
-      { title: 'Add the plan tool', status: 'active' },
-      { title: 'Write tests', status: 'pending' },
-      { title: 'Run the checks', status: 'pending' },
+  await $.tool.call({
+    tool: 'TodoWrite',
+    todos: [
+      { content: 'Read the code', status: 'completed' },
+      { content: 'Add the plan tool', status: 'in_progress' },
+      { content: 'Write tests', status: 'pending' },
+      { content: 'Run the checks', status: 'pending' },
     ],
   })
-  expect(ran.text).toBe('Plan shown: 1/4 steps done.')
-  // The engine takes only text as a registered tool's result.
-  expect(typeof ran.result).toBe('string')
   // 15 s into the active step, half its 30 s default: steps read 100, 50, 0
   // and 0%, so the Claude bar shows their mean, 38%.
   await clock.set(1_000 + 15_000)
@@ -292,10 +288,10 @@ test('each plan step has its own bar and they drive the Claude bar', async ($, o
 
   // Every step done: the bars reach 100%.
   await $.tool.call({
-    tool: 'mcp__clawd-at-work__plan',
-    steps: ['Read the code', 'Add the plan tool', 'Write tests', 'Run the checks'].map(title => ({
-      title,
-      status: 'done',
+    tool: 'TodoWrite',
+    todos: ['Read the code', 'Add the plan tool', 'Write tests', 'Run the checks'].map(content => ({
+      content,
+      status: 'completed',
     })),
   })
   ui = await $.ui.mount(PANE)
@@ -304,8 +300,8 @@ test('each plan step has its own bar and they drive the Claude bar', async ($, o
 
   // A title too long for the pane uses its whole width before it is cut.
   await $.tool.call({
-    tool: 'mcp__clawd-at-work__plan',
-    steps: [{ title: 'Check the pane loads the edited mod from the local folder', status: 'done' }],
+    tool: 'TodoWrite',
+    todos: [{ content: 'Check the pane loads the edited mod from the local folder', status: 'completed' }],
   })
   ui = await $.ui.mount(PANE)
   expect((await ui.find({ type: 'Text', text: /Check the pane/ }))?.text).toBe('  ✓ Check the pane loads the edited mod…')
@@ -316,6 +312,20 @@ test('each plan step has its own bar and they drive the Claude bar', async ($, o
   ui = await $.ui.mount(PANE)
   expect(await ui.find({ type: 'Text', text: /^ Plan / })).toBeUndefined()
   await ui.unmount()
+})
+
+test('the mod adds nothing the model reads, so it costs no tokens', async ($, on) => {
+  engine(on)
+  let registered = 0
+  on('tool.register', () => {
+    registered += 1
+    return { value: { tool: 'unexpected' } }
+  })
+  const base = [{ id: 'base', text: 'The prompt as the engine composed it.', scope: 'shared' as const }]
+  on('prompt.compose', () => ({ sections: base }))
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+  expect(registered).toBe(0)
+  expect((await $.prompt.compose({} as never)).sections).toEqual(base)
 })
 
 test('a TodoWrite list shows as the plan', async ($, on) => {
@@ -357,7 +367,7 @@ test('without a declared plan, real actions become auto steps', async ($, on) =>
   await ui.unmount()
 
   // A declared plan takes over from the auto steps.
-  await $.tool.call({ tool: 'mcp__clawd-at-work__plan', steps: [{ title: 'Ship it', status: 'active' }] })
+  await $.tool.call({ tool: 'TodoWrite', todos: [{ content: 'Ship it', status: 'in_progress' }] })
   ui = await $.ui.mount(PANE)
   expect(await ui.find({ type: 'Text', text: /^ Steps / })).toBeUndefined()
   expect((await ui.find({ type: 'Text', text: /^ Plan / }))?.text).toMatch(/0\/1 steps done/)
@@ -458,17 +468,17 @@ test('a finished step teaches the typical step time', async ($, on) => {
   await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
   const plan = (first: string, second: string) =>
     $.tool.call({
-      tool: 'mcp__clawd-at-work__plan',
-      steps: [
-        { title: 'One', status: first },
-        { title: 'Two', status: second },
+      tool: 'TodoWrite',
+      todos: [
+        { content: 'One', status: first },
+        { content: 'Two', status: second },
       ],
     })
 
   // Step One is active for 10 s, then done.
-  await plan('active', 'pending')
+  await plan('in_progress', 'pending')
   await clock.set(1_000 + 10_000)
-  await plan('done', 'active')
+  await plan('completed', 'in_progress')
 
   // 5 s into step Two reads 50% of the learned 10 s, not 17% of 30 s.
   await clock.set(1_000 + 15_000)
@@ -542,12 +552,12 @@ test('under a declared plan, Recent lists the latest calls and marks a failed on
   await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
   await $.turn.start({ text: 'fix it', turnId: 't1' })
 
-  await $.tool.call({ tool: 'mcp__clawd-at-work__plan', steps: [{ title: 'Fix it', status: 'active' }] })
+  await $.tool.call({ tool: 'TodoWrite', todos: [{ content: 'Fix it', status: 'in_progress' }] })
   await $.tool.call({ tool: 'Read', file_path: 'C:\\repo\\notes.md' })
   await $.tool.call({ tool: 'Bash', command: 'exit 1' })
   const WIDE = { ...PANE, props: { ...PANE.props, bodyColumns: 60 } }
   let ui = await $.ui.mount(WIDE)
-  // The plan tool itself is not an action in the feed.
+  // TodoWrite itself is not an action in the feed.
   expect((await ui.find({ type: 'Text', text: /^ Recent / }))?.text).toMatch(/2 actions$/)
   expect((await ui.find({ type: 'Text', text: /Read notes\.md/ }))?.text).toMatch(/^  ▤ Read notes\.md\s+\d+\.\ds$/)
   expect((await ui.find({ type: 'Text', text: /Run exit 1/ }))?.text).toMatch(/^  ✗ Run exit 1/)
@@ -770,7 +780,6 @@ test('a session publishes what it is doing for the others, and takes it back whe
   on('session.id', () => ({ value: 'me' }) as never)
   on('session.repo', () => ({ value: { root: '/home/me/repo', remote: null, internal: false } }) as never)
   on('command.register', () => ({ value: { command: 'clawd-at-work' } }))
-  on('tool.register', () => ({ value: { tool: 'mcp__clawd-at-work__plan' } }))
   on('ui.open', () => ({ value: { isPlaced: true } }))
   on('session.start', (_, e) => ({ cwd: e.cwd }))
   on('session.usage', () => ({ value: { startedAt: 0, context: { window: 200_000 }, rateLimits: [] } }))

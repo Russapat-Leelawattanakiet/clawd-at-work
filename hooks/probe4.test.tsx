@@ -45,7 +45,6 @@ const engine = (on: On, kept = new Map<string, unknown>(), opts: Opts = {}) => {
   sharedStore(on, kept)
   let spawned = 0
   on('command.register', () => ({ value: { command: 'clawd-at-work' } }))
-  on('tool.register', () => ({ value: { tool: 'mcp__clawd-at-work__plan' } }))
   on('ui.open', () => ({ value: { isPlaced: true } }))
   on('session.start', (_, e) => ({ cwd: e.cwd }))
   on('session.end', (_, e) => ({ sessionId: e.sessionId }))
