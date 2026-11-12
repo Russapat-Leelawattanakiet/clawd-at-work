@@ -3,6 +3,9 @@ import type { AgentInfo, AgentStatus, EngineInterface, ModelUsage, Register, Ses
 
 import type {
   Call,
+  ContextDetail,
+  ContextFill,
+  ContextPiece,
   FeedItem,
   Limit,
   MainTurn,
@@ -152,6 +155,11 @@ const files = atom({ plugin: 'clawd-at-work', key: 'files' } as const, [])
 const summary = atom({ plugin: 'clawd-at-work', key: 'summary' } as const, null)
 const self = atom({ plugin: 'clawd-at-work', key: 'self' } as const, null)
 const peers = atom({ plugin: 'clawd-at-work', key: 'peers' } as const, [])
+const context = atom({ plugin: 'clawd-at-work', key: 'context' } as const, null)
+const contextOpen = atom({ plugin: 'clawd-at-work', key: 'contextOpen' } as const, false)
+const contextDetail = atom({ plugin: 'clawd-at-work', key: 'contextDetail' } as const, null)
+// Pieces named on one line of the Context dropdown (MCP servers, memory files).
+const SHOWN_PIECES = 3
 
 // ---------------------------------------------------------------- helpers
 
@@ -924,6 +932,31 @@ const applyMeasure = ($: EngineInterface, limits: readonly Limit[], cost: Sessio
   return update($, usage, u => ({ ...u, limits: sorted, usd: cost?.usd ?? u.usd }))
 }
 
+// Keep only the context figures the pane draws (never the breakdown).
+const toFill = (c: ContextFill): ContextFill => ({ tokens: c.tokens, window: c.window, percent: c.percent })
+
+// Biggest first, empty ones dropped.
+const biggest = (pieces: ContextPiece[]) => pieces.filter(p => p.tokens > 0).sort((a, b) => b.tokens - a.tokens)
+
+// Fetch the window's breakdown for the Context dropdown, estimated locally as
+// /context's summary does: no token-count requests, so it costs no tokens.
+const loadDetail = async ($: EngineInterface) => {
+  const measured = await $.session.usage({ breakdown: 'summary' })
+  const b = measured.context.breakdown
+  if (!b) return
+  const servers = new Map<string, number>()
+  for (const t of b.mcpTools) if (t.isLoaded) servers.set(t.serverName, (servers.get(t.serverName) ?? 0) + t.tokens)
+  const detail: ContextDetail = {
+    parts: b.categories.map(c => ({ name: c.name, tokens: c.tokens, kind: c.kind, color: c.color })),
+    max: b.rawMaxTokens,
+    mcp: biggest([...servers].map(([name, n]) => ({ name, tokens: n }))),
+    memory: biggest(b.memoryFiles.map(f => ({ name: f.path.split(/[\\/]/).pop() ?? f.path, tokens: f.tokens }))),
+    skills: b.skills && { listed: b.skills.includedSkills, total: b.skills.totalSkills, tokens: b.skills.tokens },
+    agents: { count: b.agents.length, tokens: b.agents.reduce((sum, a) => sum + a.tokens, 0) },
+  }
+  await update($, contextDetail, () => detail)
+}
+
 // This week's count from the store; zero once its window has reset.
 const savedWeek = async ($: EngineInterface, now: number) => {
   const saved = (await $.store.get(WEEK_KEY).catch(() => undefined)) as WeekTokens | undefined
@@ -1164,6 +1197,7 @@ export const register: Register = on => {
     // Usage as the status line has it now, and this week's tokens so far.
     const measured = await $.session.usage().catch(() => undefined)
     if (measured) await applyMeasure($, measured.rateLimits, measured.cost).catch(() => {})
+    if (measured) await update($, context, () => toFill(measured.context))
     const week = await savedWeek($, await $.clock.now())
     await update($, usage, u => ({ ...u, weekTokens: week?.tokens ?? 0 }))
 
@@ -1314,9 +1348,14 @@ export const register: Register = on => {
     return next(e)
   })
 
-  // The engine's rate-limit windows and cost, pushed as they move.
+  // The engine's rate-limit windows, cost and context fill, pushed as they move.
   on('session.measure', async ($, e, next) => {
     await applyMeasure($, e.rateLimits, e.cost)
+    if (e.changed.includes('context')) {
+      await update($, context, () => toFill(e.context))
+      // An open Context dropdown follows; a closed one is fetched when opened.
+      if (await read($, contextOpen)) void loadDetail($).catch(() => {})
+    }
     return next(e)
   }).catch(($, e, next) => next(e))
 
@@ -1584,8 +1623,30 @@ export const register: Register = on => {
     // its bar beneath) and a spacer.
     const planRows =
       stepsShown.length > 0 ? 2 + stepsShown.length + stepsShown.filter(s => s.status === 'active').length : 0
-    // Usage: heading, a row per limit window (or one saying none), tokens, spacer.
-    const usageRows = 3 + Math.max(1, usageNow.limits.length)
+    // Context: one row, plus its open dropdown's lines. What occupies the
+    // window comes first, biggest first; then free space, the compaction
+    // buffer and on-demand schemas; then what the biggest ones hold.
+    const [fill, isCtxOpen, detail] = await Promise.all([read($, context), read($, contextOpen), read($, contextDetail)])
+    const detailLines = !isCtxOpen
+      ? []
+      : detail === null
+        ? [{ kind: 'note' as const, label: '', text: 'counting…' }]
+        : [
+            ...[...detail.parts]
+              .sort((a, b) => Number(b.kind === 'used') - Number(a.kind === 'used') || b.tokens - a.tokens)
+              .map(p => ({ kind: 'part' as const, part: p })),
+            ...(detail.mcp.length > 0 ? [{ kind: 'pieces' as const, label: 'MCP', pieces: detail.mcp }] : []),
+            ...(detail.memory.length > 0 ? [{ kind: 'pieces' as const, label: 'Memory', pieces: detail.memory }] : []),
+            ...(detail.skills
+              ? [{ kind: 'note' as const, label: 'Skills', text: `${detail.skills.listed}/${detail.skills.total} listed · ${tokens(detail.skills.tokens)}` }]
+              : []),
+            ...(detail.agents.count > 0
+              ? [{ kind: 'note' as const, label: 'Agents', text: `${detail.agents.count} described · ${tokens(detail.agents.tokens)}` }]
+              : []),
+          ]
+    // Usage: heading, a row per limit window (or one saying none), the
+    // Context row and its dropdown, tokens, spacer.
+    const usageRows = 4 + Math.max(1, usageNow.limits.length) + detailLines.length
     // Recent shows only under a declared plan: its heading and newest calls.
     const feedShown = planNow.length > 0 ? feedNow.slice(-FEED_SHOWN) : []
     const feedRows = feedShown.length > 0 ? 1 + feedShown.length : 0
@@ -1830,6 +1891,68 @@ export const register: Register = on => {
         </Text>
       )
     }
+    // Context: how full the window is, a bar colored by how close it is to
+    // full, then the tokens used against the window. A Button cannot
+    // truncate, so the bar leaves room for the rest of the line. Pressed, it
+    // opens a dropdown of what the window holds, as /context breaks it down.
+    const ctxWidth = Math.max(6, Math.min(24, columns - 33))
+    const ctxPct = Math.max(0, Math.min(100, fill?.percent ?? 0))
+    const ctxFilled = Math.round((ctxPct / 100) * ctxWidth)
+    const ctxColor = ctxPct >= ALERT_AT ? 'error' : ctxPct >= WARN_AT ? 'warning' : 'success'
+    const toggleCtx = async () => {
+      const isOpening = !(await read($, contextOpen))
+      await update($, contextOpen, () => isOpening)
+      if (isOpening) await loadDetail($).catch(() => {})
+    }
+    const contextHead = (
+      <Button key="context" plain onPress={toggleCtx}>
+        <Text bold>{isCtxOpen ? '▾ Context ' : '▸ Context '}</Text>
+        {fill === null || fill.tokens === undefined || fill.percent === undefined ? (
+          <Text dimColor>{fill === null ? 'not measured yet' : `after next reply · ${tokens(fill.window)}`}</Text>
+        ) : (
+          <Text>
+            <Text color={ctxColor}>{'━'.repeat(ctxFilled)}</Text>
+            <Text dimColor>{'─'.repeat(ctxWidth - ctxFilled)}</Text>
+            <Text color={ctxPct >= WARN_AT ? ctxColor : undefined}>{` ${String(ctxPct).padStart(3)}%`}</Text>
+            <Text dimColor>{`  ${tokens(fill.tokens)} / ${tokens(fill.window)}`}</Text>
+          </Text>
+        )}
+      </Button>
+    )
+    const partWidth = Math.max(10, Math.min(22, columns - 24))
+    const detailRow = (line: (typeof detailLines)[number]) => {
+      if (line.kind === 'part') {
+        const p = line.part
+        const share = detail && detail.max > 0 ? Math.round((p.tokens / detail.max) * 100) : 0
+        return (
+          <Text wrap="truncate-end" dimColor={p.kind !== 'used'}>
+            {'    '}
+            <Text color={p.color}>{p.kind === 'free' ? '□' : p.kind === 'deferred' ? '◌' : '■'}</Text>
+            {` ${padTo(clip(p.name, partWidth), partWidth)} ${tokens(p.tokens).padStart(6)}`}
+            <Text dimColor>{p.kind === 'deferred' ? '  on demand' : ` ${String(share).padStart(3)}%`}</Text>
+          </Text>
+        )
+      }
+      if (line.kind === 'pieces') {
+        const named = line.pieces.slice(0, SHOWN_PIECES).map(p => `${p.name} ${tokens(p.tokens)}`)
+        const more = line.pieces.length - SHOWN_PIECES
+        return (
+          <Text wrap="truncate-end">
+            {'      '}
+            <Text bold>{line.label.padEnd(7)}</Text>
+            <Text dimColor>{named.join(' · ') + (more > 0 ? ` · +${more} more` : '')}</Text>
+          </Text>
+        )
+      }
+      return (
+        <Text wrap="truncate-end">
+          {'      '}
+          {line.label !== '' && <Text bold>{line.label.padEnd(7)}</Text>}
+          <Text dimColor>{line.text}</Text>
+        </Text>
+      )
+    }
+
     // Tokens: in the longest words that fit beside the cost, so it shows.
     const cost = usageNow.usd === undefined ? '' : ` · $${usageNow.usd.toFixed(2)}`
     const [sessionText, weekText] = [tokens(usageNow.sessionTokens), tokens(usageNow.weekTokens)]
@@ -1847,6 +1970,8 @@ export const register: Register = on => {
         ) : (
           usageNow.limits.map(limitRow)
         )}
+        {contextHead}
+        {detailLines.map(detailRow)}
         <Text wrap="truncate-end">
           <Text bold>{' Tokens   '}</Text>
           {tokensText}

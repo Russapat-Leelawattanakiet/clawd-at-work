@@ -40,13 +40,15 @@ const AGENT_END = {
 // `status.now` is what `$.agent.list()` reports for the newest agent, every
 // earlier one being completed. `stored` seeds the mod's store. `forked` are
 // agents the engine also lists that started with no agent.spawn (a forked
-// skill). A command with `exit 1` in it fails.
+// skill). A command with `exit 1` in it fails. `breakdown` is what
+// `$.session.usage({ breakdown })` answers as the context's breakdown.
 type Listed = { id: string; description: string; type: string; status: AgentStatus }
 const engine = (
   on: On,
   status: { now: AgentStatus } = { now: 'running' },
   stored: Record<string, unknown> = {},
   forked: Listed[] = [],
+  breakdown?: unknown,
 ) => {
   const clock = mock.clock(on, { now: 1_000 })
   mock.store(on, stored)
@@ -54,7 +56,13 @@ const engine = (
   on('command.register', () => ({ value: { command: 'clawd-at-work' } }))
   on('ui.open', () => ({ value: { isPlaced: true } }))
   on('session.start', (_, e) => ({ cwd: e.cwd }))
-  on('session.usage', () => ({ value: { startedAt: 0, context: { window: 200_000 }, rateLimits: [] } }))
+  on('session.usage', (_, e) => ({
+    value: {
+      startedAt: 0,
+      context: { window: 200_000, ...(e.breakdown !== undefined && breakdown !== undefined ? { breakdown } : {}) },
+      rateLimits: [],
+    } as never,
+  }))
   on('session.measure', (_, e) => ({ changed: e.changed }))
   on('turn.complete', (_, e) => ({ text: e.answer }))
   on('tool.call', (_, e) =>
@@ -797,6 +805,74 @@ test('usage shows the session and week limits and when each resets', async ($, o
   await clock.set(1_000 + 60_000)
   ui = await $.ui.mount(PANE)
   expect((await ui.find({ type: 'Text', text: /^ Session .*%/ }))?.text).toMatch(/resets in 2h 13m$/)
+  await ui.unmount()
+})
+
+test('the Context row shows the window fill and opens a breakdown, biggest first', async ($, on) => {
+  // Asked for a breakdown, the engine answers it as /context counts it.
+  const part = (name: string, tokens: number, kind = 'used') => ({ name, tokens, color: 'text', isDeferred: kind === 'deferred', kind })
+  engine(on, { now: 'running' }, {}, [], {
+    categories: [
+      part('System prompt', 3_100),
+      part('System tools', 17_400),
+      part('Free space', 100_000, 'free'),
+      part('Messages', 34_200),
+      part('Autocompact buffer', 33_000, 'buffer'),
+    ],
+    totalTokens: 54_700,
+    maxTokens: 200_000,
+    rawMaxTokens: 200_000,
+    autocompactSource: 'model-default',
+    percentage: 27,
+    gridRows: [],
+    model: 'test',
+    memoryFiles: [{ path: 'C:\\repo\\CLAUDE.md', type: 'Project', tokens: 1_200 }],
+    mcpTools: [
+      { name: 'mcp__notion__a', serverName: 'notion', tokens: 2_400, isLoaded: true },
+      { name: 'mcp__linear__a', serverName: 'linear', tokens: 3_000, isLoaded: true },
+      { name: 'mcp__linear__b', serverName: 'linear', tokens: 2_100, isLoaded: true },
+      { name: 'mcp__figma__a', serverName: 'figma', tokens: 9_000, isLoaded: false },
+    ],
+    agents: [],
+    isAutoCompactEnabled: true,
+    apiUsage: null,
+  })
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+
+  // Before the first reply there is no fill to show, only the window.
+  let ui = await $.ui.mount(PANE)
+  expect((await ui.find({ type: 'Button', key: 'context' }))?.text).toBe('▸ Context after next reply · 200.0k')
+  await ui.unmount()
+
+  await $.session.measure({
+    context: { tokens: 68_200, window: 200_000, percent: 34 },
+    rateLimits: [],
+    changed: ['context'],
+  })
+  ui = await $.ui.mount(PANE)
+  expect((await ui.find({ type: 'Button', key: 'context' }))?.text).toMatch(/^▸ Context .* 34%  68\.2k \/ 200\.0k$/)
+  expect(await ui.find({ type: 'Text', text: /Messages/ })).toBeUndefined()
+
+  // Pressed, it lists what the window holds: in use biggest first, then the rest.
+  await ui.press({ key: 'context' })
+  expect((await ui.find({ type: 'Button', key: 'context' }))?.text).toMatch(/^▾ Context/)
+  const parts = await ui.findAll({ type: 'Text', text: /^ {4}[■□◌] / })
+  expect(parts.map(p => p.text.slice(6).split(/\s{2,}/)[0])).toEqual([
+    'Messages',
+    'System tools',
+    'System prompt',
+    'Free space',
+    // Cut to fit the 40-column pane.
+    'Autocompact buf…',
+  ])
+  expect(parts[0]?.text).toMatch(/34\.2k\s+17%$/)
+  // MCP servers by their loaded schemas, biggest first; memory files by name.
+  expect((await ui.find({ type: 'Text', text: /^ {6}MCP/ }))?.text).toBe('      MCP    linear 5.1k · notion 2.4k')
+  expect((await ui.find({ type: 'Text', text: /^ {6}Memory/ }))?.text).toBe('      Memory CLAUDE.md 1.2k')
+
+  // Pressed again, it folds back up.
+  await ui.press({ key: 'context' })
+  expect(await ui.find({ type: 'Text', text: /Messages/ })).toBeUndefined()
   await ui.unmount()
 })
 

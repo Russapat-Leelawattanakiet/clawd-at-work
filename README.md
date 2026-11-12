@@ -34,7 +34,10 @@ Skills
   to approve a plan, shows a red `!` and **hit a snag** for a few seconds when a tool fails, and cheers with sparkles
   (**done!**) when a turn ends. Below the word are the turn's elapsed time and how many agents and skills ran.
 - **Usage.** How much of your plan's limits you've used: the 5-hour **Session** window and the 7-day **Week** window,
-  each with a bar (yellow from 70%, red from 90%) and how long until it resets. Below them, the tokens used this
+  each with a bar (yellow from 70%, red from 90%) and how long until it resets. Then **Context**: how full Claude's
+  context window is, as a bar with the tokens used out of the window. Click it to open a dropdown of what the window
+  holds, the way `/context` breaks it down (messages, system tools, MCP tools, memory files, skills and so on),
+  largest first, with the biggest MCP servers and memory files named. Below that, the tokens used this
   session and this week, and the session's cost. The week's token count covers only sessions that have this mod
   installed on this computer, and it starts over when the weekly window resets. The limit bars appear only when you're
   logged in with a Claude subscription, after Claude's first reply.
