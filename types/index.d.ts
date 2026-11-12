@@ -118,6 +118,37 @@ export type Limit = {
 // count starts over once `resetsAt` has passed.
 export type WeekTokens = { tokens: number; resetsAt: string }
 
+// How full the context window is, as the status line has it: the input
+// tokens of the last response against the model's window. `tokens` and
+// `percent` are absent until the live window's first response.
+export type ContextFill = {
+  tokens?: number
+  window: number
+  percent?: number
+}
+
+// The context window by category, as /context breaks it down, for the
+// Context row's dropdown. Estimated locally (no token-count requests).
+export type ContextPart = {
+  name: string
+  tokens: number
+  kind: 'used' | 'free' | 'buffer' | 'deferred'
+  // The theme key /context draws the category in.
+  color: string
+}
+export type ContextPiece = { name: string; tokens: number }
+export type ContextDetail = {
+  parts: ContextPart[]
+  // The window the breakdown measures against.
+  max: number
+  // MCP servers with their loaded tool schemas, biggest first.
+  mcp: ContextPiece[]
+  // Memory files (CLAUDE.md and the like) by file name, biggest first.
+  memory: ContextPiece[]
+  skills?: { listed: number; total: number; tokens: number }
+  agents: { count: number; tokens: number }
+}
+
 // What the Usage section shows.
 export type Usage = {
   limits: Limit[]
@@ -177,6 +208,12 @@ declare module 'claude-code' {
       typical: Typical
       // Rate-limit windows, token counts and cost for the Usage section.
       usage: Usage
+      // The context window's fill for the Context row; null until measured.
+      context: ContextFill | null
+      // Whether the Context row's dropdown is open.
+      contextOpen: boolean
+      // The breakdown the dropdown shows; null until first opened.
+      contextDetail: ContextDetail | null
       // The main loop's recent tool calls, newest last; cleared by each new prompt.
       feed: FeedItem[]
       // Every main-loop call pushed to the feed since the last prompt, past
