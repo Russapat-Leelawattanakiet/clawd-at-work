@@ -44,6 +44,8 @@ Each requirement has an ID so test reports can point at it. "Narrow" means a 40-
 - **R3.2** Without a plan, the pane builds steps from what Claude does, merging repeats of the same action (`×2`). The
   Claude bar then shows a time estimate.
 - **R3.3** Progress estimates never reach 100% until the work really ends, and learn typical times across sessions.
+- **R3.5** Steps and Plan show at most 6 steps, their heading saying how many more there are. The heading is a
+  dropdown: clicking it folds the steps away, and clicking again shows the 6 again.
 - **R3.4** Under a declared plan, a Recent list shows the latest actions with their time; failed ones are marked ✗.
 
 ## 4. Agents and skills
@@ -52,6 +54,16 @@ Each requirement has an ID so test reports can point at it. "Narrow" means a 40-
   never hidden for space; finished ones that don't fit are counted.
 - **R4.2** Clicking an agent row opens a list of its latest tool calls, with the same readable targets as R2.
 - **R4.3** Every skill Claude loads is listed with status and time.
+- **R4.4** Under this session's agents, Agents lists every other Claude Code session on the computer that is working,
+  waiting for the person or running subagents, in any project and with or without this mod: its name (cut from the
+  front when long), its state, a bar while it works, what it does or waits for, and each running subagent by its
+  task (its type only when it has none), with its bar, time and tool count, in a color no other agent shown has (while six colors last), kept for as
+  long as it runs. A session waiting for the person flashes and comes first. They are read from
+  the files Claude Code keeps per session (records under `sessions/`, transcripts and subagent logs under
+  `projects/`); the token files beside the records are never read. A failed read says so in one line. These rows
+  take at most half the room left for Agents and Skills, going one line each and then `+N more sessions` past it.
+  A one-line row (this session's agents or another session's) keeps a short bar, so work in progress always shows one.
+  A working session's name has a line of its own, with its bar beneath.
 
 ## 5. Files and usage
 
@@ -71,6 +83,8 @@ Each requirement has an ID so test reports can point at it. "Narrow" means a 40-
   progress and whether it is working, waiting for the person, done or failed. A session that ends or stops reporting
   drops off the list within about a minute. Each session's own sections (Claude bar, plan, agents, files, Done line)
   still show only its own work; only learned typical times, the week's token count and the Sessions list are shared.
+  The exception is the other-session rows under Agents (R4.4), drawn below this session's own agents; a session
+  shown there is not listed again under Sessions.
 
 ## 7. Safety and robustness
 

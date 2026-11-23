@@ -18,9 +18,16 @@ is doing and how far along it is.
     ━━━━━━━━━▛█▜─────────────  41%  0:12
  Files    ✎ register.tsx  ✎ README.md  ◦ index.d.ts
 
-Agents
+Agents   1 running · 1 in other sessions
 ▸ ◐ Explore  find the config loader
     ━━━━━━━━━━━━▜█▛─────────  48%  0:21 · 7 tools
+ ! …mvp-999d414c-0e  needs you
+    approve Bash
+ ◐ …mvp-999d414c-25  working 4:10
+    ━━━━━━━━━━━━━▛█▜────────  50%  4:10
+    Running tests
+   ◒ Review v0.4.2 parser changes
+     ━━━━━━━━━━━━▛█▜──────  41%  2:03 · 14 tools
 Skills
  ✓ plugin-authoring  0:03
 ```
@@ -56,12 +63,30 @@ Skills
   `Fetch docs.example.com`, `Google Drive: search files`).
 - **Plan.** When Claude writes a todo list with Claude Code's own `TodoWrite` tool, the list replaces Steps, and the
   Claude bar becomes the progress through it.
+
+  Steps and Plan show at most 6 steps: the newest ones, or for a plan the ones around the step in progress, with
+  `· 3 more` on the heading for the ones left out. The heading is a dropdown: click it (`▾` → `▸`) to fold the steps
+  away, and again to bring the 6 back.
 - **Recent.** Under a todo list, the last few actions Claude took, each with an icon for its kind and how long it took;
   a failed one is marked with a red ✗.
 - **Files.** The files Claude has edited (`✎`, first) and read (`◦`) since your last prompt, with `+N` for the ones that
   don't fit. Files a subagent edits are listed too; files it only reads are not.
 - **Agents.** Every subagent Claude starts, newest first, each in its own color, with an estimated progress bar, run
   time and tool count. Click a row to open a dropdown of its latest tool calls and how long each took.
+  Below them, every **other Claude Code session on this computer** that is working, waiting for you or running
+  subagents, in any project and whether or not it has this mod: its name (the one `ListAgents` shows, cut from the
+  front so the part that tells them apart stays), and then:
+  - **Waiting for you** (a permission prompt, a question, an open dialog): its line flashes with `needs you`, and the
+    line under it says what it waits for. These come first.
+  - **Working:** a bar for its turn, how long it has worked, and what it is doing now, in a color of its own (orange
+    is kept for this session's Claude bar).
+  - **Its subagents still running:** each in a color no other agent on screen has (while the palette's six last),
+    named by its task, with its own bar, run time and tool count. A subagent drops
+    off when it hands back its result.
+
+  These are read from the files Claude Code keeps for every session under `~/.claude` (each session's record in
+  `sessions/`, and its transcript and subagent logs in `projects/`), about every two seconds. The access-token files
+  beside the records are never read. A session shown here is not listed again under **Sessions**.
 - **Skills.** Every skill Claude loads (through the Skill tool or typed as `/name`), with its status and time.
 - **Sessions.** Other Claude Code sessions working in the same project at the same time (background sessions from
   `claude --bg`, other terminals, worktrees of the same repository), each with what you last asked it, whether it is
@@ -71,11 +96,12 @@ Skills
   computer.
 
 A permission prompt (Claude asking to run a command) still reads as the action itself, not "waiting for you": Claude
-Code tells the mod when the dialog opens but not when you answer it.
+Code tells the mod when the dialog opens but not when you answer it. Other sessions under **Agents** do show
+`needs you` for a permission prompt: each session writes that state to its own record while the dialog is open.
 
 The mod costs no tokens: it adds no tool and no text for Claude to read, and it never calls a model. Everything in the
-pane comes from events Claude Code already sends, so the bars are estimates rather than Claude's own account of its
-progress.
+pane comes from events Claude Code already sends and, for other sessions, the files Claude Code keeps for them, so the
+bars are estimates rather than Claude's own account of its progress.
 
 Progress estimates are learned: the mod remembers how long each agent type, turn and step usually takes (kept across
 sessions), so the bars get more accurate the more you use it. An estimate stays below 100% until the work really ends.
@@ -121,6 +147,7 @@ There is nothing to set up: the pane opens when a session starts and updates by 
 | --- | --- |
 | Reopen the pane after closing it | Type `/clawd-at-work` |
 | See an agent's tool calls | Click its row in **Agents** (click again to close) |
+| Hide or show the steps | Click the **Steps** (or **Plan**) heading |
 
 ### Pane shows at the bottom instead of the side?
 

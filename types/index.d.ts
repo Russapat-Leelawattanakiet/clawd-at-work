@@ -185,6 +185,41 @@ export type Peer = {
   updatedAt: number
 }
 
+// A subagent running in another Claude Code session on this computer, read
+// from that session's own subagent log.
+export type RemoteAgent = {
+  id: string
+  // Its agent type (Explore, general-purpose, ...) and the task it was given.
+  type: string
+  task: string
+  startedAt: number
+  // Tool calls it has made so far, and what it is doing now in plain words.
+  tools: number
+  activity: string
+  // Palette slot: each agent shown keeps its own, unlike its neighbours'.
+  hue: number
+}
+
+// Another Claude Code session on this computer, from the record each one
+// keeps under ~/.claude/sessions, whether or not it runs this mod.
+export type RemoteSession = {
+  id: string
+  // Its name, as ListAgents and SendMessage address it.
+  name: string
+  // waiting: a dialog or question waits for the person.
+  state: 'working' | 'waiting' | 'idle'
+  // What it waits for ("approve Bash", "input needed"); '' unless waiting.
+  waitingFor: string
+  // When its state last changed, in $.clock.now() time.
+  since: number
+  // What its main loop did last, in plain words; '' when unknown.
+  activity: string
+  agents: RemoteAgent[]
+  // Palette slot for its mark, words and bar while it works; never orange,
+  // which is this session's own Claude bar.
+  hue: number
+}
+
 declare module 'claude-code' {
   interface PluginState {
     'clawd-at-work': {
@@ -212,6 +247,9 @@ declare module 'claude-code' {
       context: ContextFill | null
       // Whether the Context row's dropdown is open.
       contextOpen: boolean
+      // Whether the Steps (or Plan) list is folded to its heading; open, it
+      // shows up to 6 steps.
+      stepsFolded: boolean
       // The breakdown the dropdown shows; null until first opened.
       contextDetail: ContextDetail | null
       // The main loop's recent tool calls, newest last; cleared by each new prompt.
@@ -227,6 +265,11 @@ declare module 'claude-code' {
       self: SelfInfo | null
       // Other sessions working in the same project, as they last published.
       peers: Peer[]
+      // Every other session on this computer that is working, waiting for the
+      // person or running subagents, shown under Agents.
+      remote: RemoteSession[]
+      // Why the other sessions could not be read; null when they could.
+      remoteError: string | null
     }
   }
 }

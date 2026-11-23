@@ -139,7 +139,8 @@ test('in a short pane every running agent still shows, one line each', async ($,
   const SHORT = { ...PANE, props: { ...PANE.props, scroll: { offset: 0, bodyRows: 20 } } }
   const ui = await $.ui.mount(SHORT)
   expect((await ui.find({ type: 'Text', text: /^Agents/ }))?.text).toBe('Agents   2 running')
-  const rows = await ui.findAll({ type: 'Text', text: /^ ◐ (Explore|claude-code-guide) +\d+%/ })
+  // Each keeps a short bar of its own between its type and percent.
+  const rows = await ui.findAll({ type: 'Text', text: /^ ◐ (Explore|claude-code-guide) ━*(▛█▜|▜█▛|███)─* +\d+%/ })
   expect(rows.map(r => r.text.split(' ')[2])).toEqual(['Explore', 'claude-code-guide'])
   expect(rows[1]?.text).toMatch(/check the docs$/)
   await ui.unmount()
@@ -283,7 +284,7 @@ test('each plan step has its own bar and they drive the Claude bar', async ($, o
   // and 0%, so the Claude bar shows their mean, 38%.
   await clock.set(1_000 + 15_000)
   let ui = await $.ui.mount(PANE)
-  expect((await ui.find({ type: 'Text', text: /^ Plan / }))?.text).toMatch(/1\/4 steps done/)
+  expect((await ui.find({ type: 'Text', text: /^▾ Plan / }))?.text).toMatch(/1\/4 steps done/)
   expect((await ui.find({ type: 'Text', text: /Read the code/ }))?.text).toMatch(/^  ✓ Read the code$/)
   // At 40 columns a title still shows whole; the active step's bar is beneath it.
   expect((await ui.find({ type: 'Text', text: /Add the plan tool/ }))?.text).toMatch(/Add the plan tool$/)
@@ -319,7 +320,7 @@ test('each plan step has its own bar and they drive the Claude bar', async ($, o
   // A new prompt clears the plan.
   await $.prompt.submit({ text: 'next', wait: false, origin: { kind: 'composer' } })
   ui = await $.ui.mount(PANE)
-  expect(await ui.find({ type: 'Text', text: /^ Plan / })).toBeUndefined()
+  expect(await ui.find({ type: 'Text', text: /^▾ Plan / })).toBeUndefined()
   await ui.unmount()
 })
 
@@ -349,7 +350,47 @@ test('a TodoWrite list shows as the plan', async ($, on) => {
     ],
   })
   const ui = await $.ui.mount(PANE)
-  expect((await ui.find({ type: 'Text', text: /^ Plan / }))?.text).toMatch(/1\/2 steps done/)
+  expect((await ui.find({ type: 'Text', text: /^▾ Plan / }))?.text).toMatch(/1\/2 steps done/)
+  await ui.unmount()
+})
+
+test('Steps is a dropdown: open it shows the newest 6 steps, folded none', async ($, on) => {
+  engine(on)
+  on('turn.start', (_, e) => ({ turnId: e.turnId }))
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+  await $.turn.start({ text: 'look around', turnId: 't1' })
+  for (let i = 1; i <= 9; i++) await $.tool.call({ tool: 'Read', file_path: `/repo/file${i}.ts` })
+
+  const steps = async (ui: { findAll: (q: { type: 'Text'; text: RegExp }) => Promise<{ text: string }[]> }) =>
+    (await ui.findAll({ type: 'Text', text: /^ {2}\S Read file\d\.ts$/ })).map(t => t.text.match(/file(\d)/)?.[1])
+
+  const ui = await $.ui.mount(PANE)
+  // Open at first: the newest six, and how many earlier ones it leaves out.
+  expect((await ui.find({ type: 'Button', key: 'steps' }))?.text).toMatch(/^▾ Steps {4}9 done · auto · 3 more$/)
+  expect(await steps(ui)).toEqual(['4', '5', '6', '7', '8', '9'])
+
+  // Pressed: folded to its heading, no steps.
+  await ui.press({ key: 'steps' })
+  expect((await ui.find({ type: 'Button', key: 'steps' }))?.text).toMatch(/^▸ Steps {4}9 done · auto$/)
+  expect(await steps(ui)).toEqual([])
+
+  // Pressed again: the six once more.
+  await ui.press({ key: 'steps' })
+  expect(await steps(ui)).toEqual(['4', '5', '6', '7', '8', '9'])
+  await ui.unmount()
+})
+
+test('a short Steps list folds and opens too', async ($, on) => {
+  engine(on)
+  on('turn.start', (_, e) => ({ turnId: e.turnId }))
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+  await $.turn.start({ text: 'look', turnId: 't1' })
+  await $.tool.call({ tool: 'Read', file_path: '/repo/a.ts' })
+  const ui = await $.ui.mount(PANE)
+  expect((await ui.find({ type: 'Button', key: 'steps' }))?.text).toMatch(/^▾ Steps {4}1 done · auto$/)
+  expect(await ui.find({ type: 'Text', text: /Read a\.ts/ })).toBeDefined()
+  await ui.press({ key: 'steps' })
+  expect(await ui.find({ type: 'Text', text: /Read a\.ts/ })).toBeUndefined()
   await ui.unmount()
 })
 
@@ -368,7 +409,7 @@ test('without a declared plan, real actions become auto steps', async ($, on) =>
   // 60 columns, so the titles and their ×2 are not cut short.
   const WIDE = { ...PANE, props: { ...PANE.props, bodyColumns: 60 } }
   let ui = await $.ui.mount(WIDE)
-  expect((await ui.find({ type: 'Text', text: /^ Steps / }))?.text).toMatch(/2 done · auto/)
+  expect((await ui.find({ type: 'Text', text: /^▾ Steps / }))?.text).toMatch(/2 done · auto/)
   expect((await ui.find({ type: 'Text', text: /Read settings/ }))?.text).toMatch(/✓ Read settings\.json ×2$/)
   expect((await ui.find({ type: 'Text', text: /Run merge/ }))?.text).toMatch(/✓ Run merge\.js$/)
   // No plan was declared, so the Claude bar keeps its time estimate.
@@ -378,14 +419,14 @@ test('without a declared plan, real actions become auto steps', async ($, on) =>
   // A declared plan takes over from the auto steps.
   await $.tool.call({ tool: 'TodoWrite', todos: [{ content: 'Ship it', status: 'in_progress', activeForm: 'Working' }] })
   ui = await $.ui.mount(PANE)
-  expect(await ui.find({ type: 'Text', text: /^ Steps / })).toBeUndefined()
-  expect((await ui.find({ type: 'Text', text: /^ Plan / }))?.text).toMatch(/0\/1 steps done/)
+  expect(await ui.find({ type: 'Text', text: /^▾ Steps / })).toBeUndefined()
+  expect((await ui.find({ type: 'Text', text: /^▾ Plan / }))?.text).toMatch(/0\/1 steps done/)
   await ui.unmount()
 
   // A new prompt clears both.
   await $.prompt.submit({ text: 'next', wait: false, origin: { kind: 'composer' } })
   ui = await $.ui.mount(PANE)
-  expect(await ui.find({ type: 'Text', text: /^ (Steps|Plan) / })).toBeUndefined()
+  expect(await ui.find({ type: 'Text', text: /^[▾▸] (Steps|Plan) / })).toBeUndefined()
   await ui.unmount()
 })
 

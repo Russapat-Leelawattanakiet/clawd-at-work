@@ -521,7 +521,8 @@ test('OK R7.2: odd plan and tool inputs never crash the pane', async ($, on) => 
     todos: Array.from({ length: 30 }, (_, i) => ({ content: `Step ${i + 1}`, status: 'pending', activeForm: 'Working' })),
   })
   const ui = await $.ui.mount(PANE)
-  expect((await ui.find({ type: 'Text', text: /^ Plan / }))?.text).toMatch(/0\/20 steps done/)
+  // The Plan heading is a dropdown, open by default.
+  expect((await ui.find({ type: 'Button', key: 'steps' }))?.text).toMatch(/^▾ Plan +0\/20 steps done · 14 more$/)
   await ui.unmount()
   await $.tool.call({ tool: 'TodoWrite', todos: [] })
   const ui2 = await $.ui.mount(PANE)
@@ -565,7 +566,7 @@ test('OK R6.1: a new prompt clears Recent, Files, Done, plan and finished skills
   await $.turn.complete(MAIN_END)
   await $.prompt.submit({ text: 'next', wait: false, origin: { kind: 'composer' } })
   const ui = await $.ui.mount(PANE)
-  expect(await ui.find({ type: 'Text', text: /^ (Plan|Steps|Recent|Files|Done) / })).toBeUndefined()
+  expect(await ui.find({ type: 'Text', text: /^([▾▸] (Plan|Steps)| (Recent|Files|Done)) / })).toBeUndefined()
   expect(await ui.find({ type: 'Text', text: / one / })).toBeUndefined()
   expect(await ui.findAll({ type: 'Button', text: /Explore/ })).toHaveLength(1)
   await ui.unmount()

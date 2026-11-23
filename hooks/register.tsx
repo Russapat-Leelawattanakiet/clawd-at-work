@@ -12,6 +12,8 @@ import type {
   Mood,
   Peer,
   PlanStep,
+  RemoteAgent,
+  RemoteSession,
   Run,
   SelfInfo,
   TouchedFile,
@@ -32,8 +34,10 @@ const DISCOVER_EVERY = 8
 const MAX_RUNS = 100
 const ORANGE = 'claude'
 // One color per agent, handed out in spawn order so parallel agents differ.
-// Fully saturated so each bar pops: orange, cyan, violet, green, yellow, pink.
-const PALETTE = ['#FF5A1F', '#00C8FF', '#9B4DFF', '#00E676', '#FFD400', '#FF2E9A']
+// Fully saturated so each bar pops: cyan, violet, green, pink, blue, yellow.
+// No orange: that is the Claude bar's and the steps' color (HOT), so no agent
+// can be mistaken for the main loop.
+const PALETTE = ['#00C8FF', '#9B4DFF', '#00E676', '#FF2E9A', '#3D6BFF', '#FFD400']
 // The Claude bar and plan steps: a hot Claude orange in the same saturation.
 const HOT = '#FF6B1A'
 // Tiny mini Clawd riding the bar, 3 characters: just its face, with the real
@@ -70,7 +74,9 @@ const DESCRIPTION_MAX = 60
 const MAX_STEPS = 20
 // Plan titles are kept up to this long; the pane cuts them to its width.
 const STEP_MAX = 200
-const SHOWN_STEPS = 8
+// Steps or plan steps shown while the list is open; pressing its heading
+// folds them away and back.
+const SHOWN_STEPS = 6
 
 // Progress estimate: elapsed / typical run time of that agent type, held
 // below 100% until the agent really ends. First runs use these defaults.
@@ -155,8 +161,11 @@ const files = atom({ plugin: 'clawd-at-work', key: 'files' } as const, [])
 const summary = atom({ plugin: 'clawd-at-work', key: 'summary' } as const, null)
 const self = atom({ plugin: 'clawd-at-work', key: 'self' } as const, null)
 const peers = atom({ plugin: 'clawd-at-work', key: 'peers' } as const, [])
+const remote = atom({ plugin: 'clawd-at-work', key: 'remote' } as const, [])
+const remoteError = atom({ plugin: 'clawd-at-work', key: 'remoteError' } as const, null)
 const context = atom({ plugin: 'clawd-at-work', key: 'context' } as const, null)
 const contextOpen = atom({ plugin: 'clawd-at-work', key: 'contextOpen' } as const, false)
+const stepsFolded = atom({ plugin: 'clawd-at-work', key: 'stepsFolded' } as const, false)
 const contextDetail = atom({ plugin: 'clawd-at-work', key: 'contextDetail' } as const, null)
 // Pieces named on one line of the Context dropdown (MCP servers, memory files).
 const SHOWN_PIECES = 3
@@ -257,6 +266,23 @@ const clip = (text: string, width: number) => {
   }
   return `${out}…`
 }
+
+// `text` cut from the front to at most `width` columns, starting with … when
+// cut: for names that share a long prefix and differ at the end.
+const clipStart = (text: string, width: number) => {
+  if (textWidth(text) <= width) return text
+  let out = ''
+  let used = 0
+  for (const g of glyphs(text).reverse()) {
+    if (used + g.width > width - 1) break
+    out = g.text + out
+    used += g.width
+  }
+  return `…${out}`
+}
+
+// A palette slot that stays the same for an id from draw to draw.
+const hueOf = (id: string) => [...id].reduce((h, ch) => (h * 31 + (ch.codePointAt(0) ?? 0)) >>> 0, 7)
 
 // Text from tool inputs as one plain line: its first line only, terminal
 // escape sequences dropped and other control characters (which make the pane
@@ -838,10 +864,23 @@ const learn = async ($: EngineInterface, type: string, ms: number) => {
   await $.store.set(STORE_KEY, { ...stored, [type]: mine })
 }
 
-// Next palette slot after the newest agent's, so neighbours never match.
+// The palette slots other sessions' agents hold now, set by each scan.
+let remoteHues = new Set<number>()
+
+// Next palette slot after the newest agent's, so neighbours never match,
+// skipping the slots running agents (here or in other sessions) hold while
+// a free one is left.
 const nextHue = (list: readonly Run[]) => {
-  const last = list.filter(r => r.kind === 'agent').at(-1)
-  return last?.hue === undefined ? 0 : (last.hue + 1) % PALETTE.length
+  const agents = list.filter(r => r.kind === 'agent')
+  const last = agents.at(-1)
+  const start = last?.hue === undefined ? 0 : (last.hue + 1) % PALETTE.length
+  const taken = new Set(remoteHues)
+  for (const r of agents) if (r.status === 'running' && r.hue !== undefined) taken.add(r.hue % PALETTE.length)
+  for (let i = 0; i < PALETTE.length; i++) {
+    const hue = (start + i) % PALETTE.length
+    if (!taken.has(hue)) return hue
+  }
+  return start
 }
 
 // Add a row for each running agent the engine lists that the pane has not
@@ -1084,6 +1123,287 @@ const shareStatus = async ($: EngineInterface) => {
   if ((await read($, usage)).weekTokens !== weekTokens) await update($, usage, u => ({ ...u, weekTokens }))
 }
 
+// ---------------------------------------------------------------- other sessions
+
+// Every Claude Code session on this computer keeps a record of itself under
+// <claude folder>/sessions (`<pid>.json`: its id, name, folder and status,
+// `waiting` with `waitingFor` while a dialog waits for the person) and writes
+// its transcript and each subagent's log under <claude folder>/projects. They
+// are read here, so sessions without this mod show too. The `<pid>.*.key`
+// files beside the records hold access tokens and are never read.
+const REMOTE_EVERY_MS = 2_000
+// How much of a session's transcript is read for its last action.
+const REMOTE_TAIL = 64 * 1024
+// A subagent log is read from its start once, then only what was added; one
+// longer than this is read from near its end, its earlier calls not counted.
+const REMOTE_AGENT_FULL = 8 * 1024 * 1024
+const REMOTE_CHUNK = 4 * 1024 * 1024
+// A subagent log untouched this long is taken as finished or abandoned.
+const REMOTE_AGENT_STALE_MS = 15 * 60_000
+// A session that says it works but has written nothing this long has stopped.
+const REMOTE_STALE_MS = 30 * 60_000
+const SHOWN_REMOTE = 4
+
+// Where Claude Code keeps its files: the folder above `projects/` in this
+// session's transcript path. Set at session start; undefined until then.
+let claudeDir: string | undefined
+
+// A transcript folder's name: the project's path with each character that is
+// not a letter or digit turned into '-' (C:\work\app -> C--work-app).
+const projectFolder = (cwd: string) => cwd.replace(/[^A-Za-z0-9]/g, '-')
+
+// What a session or agent's last call was doing, in the pane's own words.
+const doingOf = (part: { name?: unknown; input?: unknown }) => {
+  const tool = plainOf(part.name)
+  const input = part.input && typeof part.input === 'object' ? (part.input as Record<string, unknown>) : {}
+  return tool === '' ? '' : titlesOf(tool, input).doing
+}
+
+// The JSON entries among complete lines; a line that does not parse is skipped.
+const jsonLines = (lines: readonly string[]) => {
+  const out: Record<string, any>[] = []
+  for (const line of lines) {
+    if (line.trim() === '') continue
+    try {
+      const entry = JSON.parse(line)
+      if (entry && typeof entry === 'object') out.push(entry)
+    } catch {
+      // cut by a read's edge
+    }
+  }
+  return out
+}
+
+// What a session's main loop did last: its newest call, or 'writing a reply'.
+const lastDoing = (entries: readonly Record<string, any>[]) => {
+  for (let i = entries.length - 1; i >= 0; i -= 1) {
+    const entry = entries[i]!
+    if (entry.isSidechain || entry.type !== 'assistant') continue
+    const content = entry.message?.content
+    if (!Array.isArray(content)) continue
+    const calls = content.filter(part => part?.type === 'tool_use')
+    if (calls.length > 0) return doingOf(calls[calls.length - 1])
+    if (content.some(part => part?.type === 'text')) return 'writing a reply'
+  }
+  return ''
+}
+
+// One subagent log as read so far: where the next read starts, the partial
+// line it ended on, and what the complete lines said.
+type AgentLog = {
+  offset: number
+  carry: string
+  tools: number
+  activity: string
+  isDone: boolean
+  startedAt: number
+  type: string
+  task: string
+}
+type SessionTail = { size: number; activity: string }
+const agentLogs = new Map<string, AgentLog>()
+const sessionTails = new Map<string, SessionTail>()
+let isScanning = false
+let lastScanAt = 0
+// Whether the last scan found a session working, waiting or running agents:
+// the ticker keeps animating for it without reading state each tick.
+let isRemoteLive = false
+
+// Read what a subagent log gained since the last read: count its calls, note
+// its newest, and whether it handed back (SubagentHandback) or answered with
+// no call, which ends its run.
+const readAgentLog = async ($: EngineInterface, path: string, size: number, log: AgentLog) => {
+  for (let reads = 0; log.offset < size && reads < 3; reads += 1) {
+    const length = Math.min(REMOTE_CHUNK, size - log.offset)
+    const text = await $.fs.read(path, { offset: log.offset, length })
+    log.offset += length
+    const lines = (log.carry + text).split('\n')
+    log.carry = lines.pop() ?? ''
+    for (const entry of jsonLines(lines)) {
+      if (log.startedAt === 0 && typeof entry.timestamp === 'string') log.startedAt = Date.parse(entry.timestamp) || 0
+      if (entry.type !== 'assistant' || !Array.isArray(entry.message?.content)) continue
+      const calls = entry.message.content.filter((part: any) => part?.type === 'tool_use')
+      for (const call of calls) {
+        if (call.name === 'SubagentHandback') log.isDone = true
+        else {
+          log.tools += 1
+          log.activity = doingOf(call)
+        }
+      }
+      if (calls.length === 0 && entry.message.stop_reason === 'end_turn') log.isDone = true
+    }
+  }
+}
+
+// The subagents still running in one session, oldest first.
+const readAgents = async ($: EngineInterface, folder: string, now: number, live: Set<string>) => {
+  const listed = await $.fs.list(folder).catch(() => [])
+  const running: RemoteAgent[] = []
+  for (const file of listed) {
+    const id = /^agent-(.+)\.jsonl$/.exec(file.name)?.[1]
+    if (file.kind !== 'file' || id === undefined) continue
+    const path = `${folder}/${file.name}`
+    // An old log is never opened, and one read before is let go once it goes quiet.
+    if (now - file.mtimeMs > REMOTE_AGENT_STALE_MS) continue
+    let log = agentLogs.get(path)
+    live.add(path)
+    if (log === undefined) {
+      const meta = await $.fs.read(`${folder}/agent-${id}.meta.json`).catch(() => '{}')
+      let parsed: Record<string, unknown> = {}
+      try {
+        const value = JSON.parse(meta)
+        if (value && typeof value === 'object') parsed = value
+      } catch {
+        // no meta: named by its id
+      }
+      const isLong = file.size > REMOTE_AGENT_FULL
+      log = {
+        offset: isLong ? file.size - REMOTE_TAIL : 0,
+        carry: '',
+        tools: 0,
+        activity: '',
+        isDone: false,
+        startedAt: isLong ? file.mtimeMs : 0,
+        type: plainOf(parsed.agentType) || 'agent',
+        task: plainOf(parsed.description),
+      }
+      agentLogs.set(path, log)
+      // A long log is read from inside a line: drop that partial line.
+      if (isLong) log.carry = '\u0000'
+    }
+    if (file.size > log.offset) {
+      await readAgentLog($, path, file.size, log).catch(() => {})
+      if (log.carry.startsWith('\u0000')) log.carry = ''
+    }
+    if (log.isDone) continue
+    running.push({
+      id,
+      type: log.type,
+      task: log.task,
+      startedAt: log.startedAt || file.mtimeMs,
+      tools: log.tools,
+      activity: log.activity,
+      hue: 0,
+    })
+  }
+  return running.sort((a, b) => a.startedAt - b.startedAt)
+}
+
+// Read every other session's record, its last action and its running
+// subagents, at most once per REMOTE_EVERY_MS and never two at once. The
+// ones working, waiting for the person or running subagents go to `remote`.
+const scanRemote = async ($: EngineInterface) => {
+  if (claudeDir === undefined || isScanning) return
+  const now = await $.clock.now()
+  if (now >= lastScanAt && now - lastScanAt < REMOTE_EVERY_MS) return
+  isScanning = true
+  lastScanAt = now
+  try {
+    // Asked each time: the session's id can change during it (/clear), and its
+    // own record must never show as another session.
+    const me = (await $.session.id().catch(() => undefined)) ?? (await read($, self))?.id
+    const recordsDir = `${claudeDir}/sessions`
+    let failure: string | null = null
+    const records = await $.fs.list(recordsDir).catch((error: unknown) => {
+      failure = `can't read ${recordsDir}: ${error instanceof Error ? error.message : String(error)}`
+      return []
+    })
+    const live = new Set<string>()
+    const found: RemoteSession[] = []
+    for (const file of records) {
+      // Only the records: never the token files beside them.
+      if (file.kind !== 'file' || !/^\d+\.json$/.test(file.name)) continue
+      let record: Record<string, unknown>
+      try {
+        const value = JSON.parse(await $.fs.read(`${recordsDir}/${file.name}`))
+        if (!value || typeof value !== 'object') continue
+        record = value
+      } catch {
+        continue
+      }
+      const id = plainOf(record.sessionId)
+      const cwd = plainOf(record.cwd)
+      if (id === '' || cwd === '' || id === me || !/^[\w-]+$/.test(id)) continue
+      const status = plainOf(record.status)
+      const waitingFor = plainOf(record.waitingFor)
+      const since = typeof record.statusUpdatedAt === 'number' ? record.statusUpdatedAt : file.mtimeMs
+
+      const folder = `${claudeDir}/projects/${projectFolder(cwd)}`
+      const transcript = `${folder}/${id}.jsonl`
+      live.add(transcript)
+      const stat = await $.fs.stat(transcript).catch(() => undefined)
+      let tail = sessionTails.get(transcript)
+      if (stat && stat.size !== tail?.size) {
+        const offset = Math.max(0, stat.size - REMOTE_TAIL)
+        const text = await $.fs.read(transcript, { offset, length: stat.size - offset }).catch(() => undefined)
+        if (text !== undefined) {
+          const lines = text.split('\n')
+          if (offset > 0) lines.shift()
+          tail = { size: stat.size, activity: lastDoing(jsonLines(lines)) }
+          sessionTails.set(transcript, tail)
+        }
+      }
+      const lastWrite = Math.max(since, stat?.mtimeMs ?? 0)
+      const state: RemoteSession['state'] =
+        status === 'waiting' || waitingFor !== ''
+          ? 'waiting'
+          : status === 'busy' && now - lastWrite < REMOTE_STALE_MS
+            ? 'working'
+            : 'idle'
+      const agents = await readAgents($, `${folder}/${id}/subagents`, now, live)
+      if (state === 'idle' && agents.length === 0) continue
+      found.push({
+        id,
+        name: plainOf(record.name) || baseName(cwd),
+        state,
+        waitingFor: state === 'waiting' ? waitingFor || 'your answer' : '',
+        since,
+        activity: tail?.activity ?? '',
+        agents,
+        hue: 0,
+      })
+    }
+    // Logs of sessions and agents no longer listed are forgotten.
+    for (const key of [...agentLogs.keys()]) if (!live.has(key)) agentLogs.delete(key)
+    for (const key of [...sessionTails.keys()]) if (!live.has(key)) sessionTails.delete(key)
+
+    // Sessions waiting for the person first, then working ones.
+    const rank = { waiting: 0, working: 1, idle: 2 }
+    found.sort((a, b) => rank[a.state] - rank[b.state] || a.name.localeCompare(b.name))
+    isRemoteLive = found.length > 0
+    const before = await read($, remote)
+
+    // Every session and agent shown keeps one color, and a new one takes the
+    // color fewest shown have, this session's own running agents counted.
+    // Orange is not among them: it is this session's own Claude bar.
+    const kept = new Map(before.flatMap(r => [[r.id, r.hue] as const, ...r.agents.map(a => [a.id, a.hue] as const)]))
+    const used = PALETTE.map(() => 0)
+    const own = (await read($, runs)).filter(r => r.kind === 'agent' && r.status === 'running')
+    for (const r of own) used[(r.hue ?? 0) % PALETTE.length]!++
+    // A session takes one only while it works: waiting it flashes in the
+    // warning color, idle it is dim.
+    const all: { id: string; hue: number }[] = found.flatMap(r => [...(r.state === 'working' ? [r] : []), ...r.agents])
+    for (const a of all) {
+      const hue = kept.get(a.id)
+      if (hue !== undefined) {
+        a.hue = hue
+        used[hue % PALETTE.length]!++
+      }
+    }
+    for (const a of all) {
+      if (kept.get(a.id) !== undefined) continue
+      a.hue = used.indexOf(Math.min(...used))
+      used[a.hue]!++
+    }
+    remoteHues = new Set(all.map(a => a.hue % PALETTE.length))
+
+    if (JSON.stringify(before) !== JSON.stringify(found)) await update($, remote, () => found)
+    if ((await read($, remoteError)) !== failure) await update($, remoteError, () => failure)
+  } finally {
+    isScanning = false
+  }
+}
+
 // ---------------------------------------------------------------- mascot
 
 // How Clawd looks: the kind of work in hand, a call that just failed, the
@@ -1209,6 +1529,12 @@ export const register: Register = on => {
     const project = repo?.root ?? e.cwd
     if (sessionId) await update($, self, old => ({ id: sessionId, cwd: project, task: old?.task ?? '' }))
 
+    // Where Claude Code keeps every session's files, for the other sessions
+    // shown under Agents: the folder above projects/ in this transcript's path.
+    const transcriptPath = (await $.session.info().catch(() => undefined))?.transcriptPath ?? ''
+    const projectsAt = transcriptPath.replace(/\\/g, '/').lastIndexOf('/projects/')
+    claudeDir = projectsAt > 0 ? transcriptPath.slice(0, projectsAt) : undefined
+
     // One ticker for the whole session: animates while busy and polls agent
     // status. Module variables reset on reload; the timer restarts with it.
     let tick = 0
@@ -1228,7 +1554,12 @@ export const register: Register = on => {
         // Swap statuses with the other sessions in this project, checked about
         // once a second (it shares at most every SHARE_MS).
         if (tick % POLL_EVERY === 1) await shareStatus($).catch(() => {})
-        const isActive = isTurnBusy || hasRunningAgent
+        // Read the other sessions on this computer beside the tick, not in it:
+        // it runs at most every couple of seconds and never two at once.
+        void scanRemote($).catch(() => {})
+        // Another session working, waiting for the person or running agents
+        // keeps the pane moving while this one rests.
+        const isActive = isTurnBusy || hasRunningAgent || isRemoteLive
         // Clawd's cheer after a turn, and a frame or two more to settle back.
         const isCheering = !isActive && isCheerAt(await read($, summary), await $.clock.now(), 2 * TICK_MS)
         // Redraw while something is happening; idle, once a minute for the
@@ -1577,15 +1908,20 @@ export const register: Register = on => {
     const agents = list.filter(r => r.kind === 'agent')
     const skills = list.filter(r => r.kind === 'skill')
     const runningAgents = agents.filter(r => r.status === 'running').length
-    const [mainNow, feedNow, feedTotal, filesNow, summaryNow, usageNow, peersNow] = await Promise.all([
-      read($, main),
-      read($, feed),
-      read($, feedCount),
-      read($, files),
-      read($, summary),
-      read($, usage),
-      read($, peers),
-    ])
+    const [mainNow, feedNow, feedTotal, filesNow, summaryNow, usageNow, peersAll, remoteNow, remoteFailure] =
+      await Promise.all([
+        read($, main),
+        read($, feed),
+        read($, feedCount),
+        read($, files),
+        read($, summary),
+        read($, usage),
+        read($, peers),
+        read($, remote),
+        read($, remoteError),
+      ])
+    // A session shown under Agents with its agents is not listed again under Sessions.
+    const peersNow = peersAll.filter(p => !remoteNow.some(r => r.id === p.id))
 
     // Clawd's look: while a turn runs, the kind of work in hand (or a call
     // that just failed); after it, a short cheer; then agents, else rest.
@@ -1614,15 +1950,19 @@ export const register: Register = on => {
     // unfinished step; auto steps show the newest, the one in progress last.
     const planDone = stepsNow.filter(s => s.status === 'done').length
     const firstOpen = Math.max(0, stepsNow.findIndex(s => s.status !== 'done'))
+    // The heading is a dropdown: open (the default) it shows SHOWN_STEPS steps,
+    // folded none.
+    const isStepsOpen = !(await read($, stepsFolded))
     const planStart = isAuto
       ? Math.max(0, stepsNow.length - SHOWN_STEPS)
       : Math.max(0, Math.min(firstOpen - 2, stepsNow.length - SHOWN_STEPS))
-    const stepsShown = stepsNow.slice(planStart, planStart + SHOWN_STEPS)
+    const stepsShown = isStepsOpen ? stepsNow.slice(planStart, planStart + SHOWN_STEPS) : []
+    const hiddenSteps = isStepsOpen ? stepsNow.length - stepsShown.length : 0
     // Above the lists: the Claude bar, its activity line and a spacer while a
     // turn runs (3); the plan's heading, its shown steps (an active one with
     // its bar beneath) and a spacer.
     const planRows =
-      stepsShown.length > 0 ? 2 + stepsShown.length + stepsShown.filter(s => s.status === 'active').length : 0
+      stepsNow.length > 0 ? 2 + stepsShown.length + stepsShown.filter(s => s.status === 'active').length : 0
     // Context: one row, plus its open dropdown's lines. What occupies the
     // window comes first, biggest first; then free space, the compaction
     // buffer and on-demand schemas; then what the biggest ones hold.
@@ -1673,7 +2013,31 @@ export const register: Register = on => {
         summaryRows -
         sessionsRows,
     )
-    const agentBudget = Math.max(2, Math.floor(room * 0.7))
+    // Other sessions under Agents: up to half the room. Each takes a heading
+    // line; while it works, its bar and what it does; while it waits, what for;
+    // and two lines per running subagent. Past half the room every line goes
+    // compact (one per session and per subagent, plus a working session's
+    // bar under its name), then the sessions that still
+    // don't fit are counted on one line. A failed read takes one line.
+    const remoteBudget = Math.max(4, Math.floor(room * 0.5))
+    const fullRows = (r: RemoteSession) =>
+      1 + (r.state === 'working' ? 1 + (r.activity !== '' ? 1 : 0) : 0) + (r.state === 'waiting' ? 1 : 0) + 2 * r.agents.length
+    const compactRows = (r: RemoteSession) => 1 + (r.state === 'working' ? 1 : 0) + r.agents.length
+    const remoteCapped = remoteNow.slice(0, SHOWN_REMOTE)
+    const isRemoteCompact = remoteCapped.reduce((k, r) => k + fullRows(r), 0) > remoteBudget
+    const remoteRowsOf = isRemoteCompact ? compactRows : fullRows
+    const remoteShown: RemoteSession[] = []
+    let remoteUsed = remoteFailure !== null ? 1 : 0
+    for (const r of remoteCapped) {
+      // The first session always shows, so one waiting for the person is never hidden.
+      if (remoteShown.length > 0 && remoteUsed + remoteRowsOf(r) > remoteBudget) break
+      remoteShown.push(r)
+      remoteUsed += remoteRowsOf(r)
+    }
+    const hiddenRemote = remoteNow.length - remoteShown.length
+    if (hiddenRemote > 0) remoteUsed += 1
+    const ownRoom = Math.max(3, room - remoteUsed)
+    const agentBudget = Math.max(2, Math.floor(ownRoom * 0.7))
     // Every running agent always shows: it is live work, so it is never hidden
     // for space. When two rows each (title and bar) would not fit them all,
     // every row goes compact, one line each. Finished agents fill what is
@@ -1693,7 +2057,7 @@ export const register: Register = on => {
     }
     const shownAgents = agents.filter(r => picked.has(r.id))
     const hiddenAgents = agents.length - shownAgents.length
-    const skillRoom = Math.max(1, room - Math.max(2, used + (hiddenAgents > 0 ? 1 : 0)))
+    const skillRoom = Math.max(1, ownRoom - Math.max(2, used + (hiddenAgents > 0 ? 1 : 0)))
 
     // The bar fills what the row leaves after indent, percent, time and tools.
     const columns = e.props.bodyColumns ?? 40
@@ -1704,16 +2068,50 @@ export const register: Register = on => {
     const colorOf = (r: Run) =>
       r.status === 'failed' ? 'error' : r.status === 'running' ? ORANGE : 'success'
 
-    // Compact agent, one line: status, type, %, time and tools, then its task.
+    // A one-line row's short bar: up to 10 columns of what `free` leaves (one
+    // goes to the space before it), none when fewer than 5 would fit.
+    const miniWidth = (free: number) => {
+      const width = Math.min(10, free - 1)
+      return width >= RUNNER[0]!.length + 2 ? width : 0
+    }
+    // That bar, with the mini Clawd at its head (or `runner` once it ended).
+    const miniBar = (pct: number, color: string, seed: number, width: number, runner?: string) => {
+      const track = width - RUNNER[0]!.length
+      const filled = Math.round((Math.min(100, pct) / 100) * track)
+      const isBlink = (n + seed * 5) % BLINK_EVERY === BLINK_EVERY - 1
+      return (
+        <Text>
+          {' '}
+          <Text color={color}>{'━'.repeat(filled)}</Text>
+          <Text color={color} bold>
+            {runner ?? (isBlink ? RUNNER_BLINK : RUNNER[n % RUNNER.length])}
+          </Text>
+          <Text dimColor>{'─'.repeat(track - filled)}</Text>
+        </Text>
+      )
+    }
+
+    // Compact agent, one line: status, type, a short bar, %, time, then the
+    // tool count when it still fits, then its task. The type is cut only to
+    // leave the bar room.
     const compactAgentRow = (r: Run) => {
       const color = r.status === 'failed' ? 'error' : PALETTE[(r.hue ?? 0) % PALETTE.length]
+      const pct = percent(r, learned, now)
+      const tail = ` ${String(pct).padStart(3)}%  ${clock((r.endedAt ?? now) - r.startedAt)}`
+      const name = clip(r.name, Math.max(10, columns - textWidth(` ${glyphOf(r)} ${tail}`) - 6))
+      const left = columns - textWidth(` ${glyphOf(r)} ${name}${tail}`)
+      const width = miniWidth(left)
+      const tools = ` · ${plural(r.tools ?? 0, 'tool')}`
+      const isToolsShown = left - (width > 0 ? width + 1 : 0) >= textWidth(tools)
+      const runner = r.status === 'running' ? undefined : r.status === 'done' ? RUNNER_DONE : RUNNER_FAILED
       return (
         <Text wrap="truncate-end">
           {' '}
           <Text color={r.status === 'running' ? color : colorOf(r)}>{`${glyphOf(r)} `}</Text>
-          {r.name}
-          <Text color={color}>{` ${String(percent(r, learned, now)).padStart(3)}%`}</Text>
-          <Text dimColor>{`  ${clock((r.endedAt ?? now) - r.startedAt)} · ${plural(r.tools ?? 0, 'tool')}  ${r.detail}`}</Text>
+          {name}
+          {width > 0 && miniBar(pct, color, r.hue ?? 0, width, runner)}
+          <Text color={color}>{` ${String(pct).padStart(3)}%`}</Text>
+          <Text dimColor>{`  ${clock((r.endedAt ?? now) - r.startedAt)}${isToolsShown ? tools : ''}  ${r.detail}`}</Text>
         </Text>
       )
     }
@@ -1835,14 +2233,21 @@ export const register: Register = on => {
         </Box>
       )
     }
+    // The heading: ▾ while its steps show, ▸ while folded away; open, it
+    // counts the earlier steps it leaves out. A Button cannot truncate, so its
+    // words are cut to the width.
+    const stepsLabel = isAuto ? 'Steps    ' : 'Plan     '
+    const stepsCount = isAuto ? `${planDone} done · auto` : `${planDone}/${planNow.length} steps done`
+    const stepsMore = hiddenSteps > 0 ? ` · ${hiddenSteps} more` : ''
+    const toggleSteps = () => update($, stepsFolded, isFolded => !isFolded)
     const planRowsShown = (
       <Box flexDirection="column">
-        <Text wrap="truncate-end">
-          <Text bold>{isAuto ? ' Steps    ' : ' Plan     '}</Text>
-          <Text dimColor>
-            {isAuto ? `${planDone} done · auto` : `${planDone}/${planNow.length} steps done`}
+        <Button key="steps" plain onPress={toggleSteps}>
+          <Text>
+            <Text bold>{`${isStepsOpen ? '▾' : '▸'} ${stepsLabel}`}</Text>
+            <Text dimColor>{clip(`${stepsCount}${stepsMore}`, Math.max(4, columns - 11))}</Text>
           </Text>
-        </Text>
+        </Button>
         {stepsShown.map(stepRow)}
       </Box>
     )
@@ -2124,6 +2529,110 @@ export const register: Register = on => {
       </Box>
     )
 
+    // Other sessions: a bar like an agent row's, `indent` columns in, with a
+    // mini Clawd running at its head and `suffix` after the percent.
+    const barLine = (indent: number, pct: number, color: string, seed: number, suffix: string) => {
+      const width = Math.max(RUNNER[0]!.length + 3, Math.min(barWidth, columns - indent - 5 - suffix.length))
+      const track = width - RUNNER[0]!.length
+      const filled = Math.round((pct / 100) * track)
+      const isBlink = (n + seed * 5) % BLINK_EVERY === BLINK_EVERY - 1
+      return (
+        <Text wrap="truncate-end">
+          {' '.repeat(indent)}
+          <Text color={color}>{'━'.repeat(filled)}</Text>
+          <Text color={color} bold>
+            {isBlink ? RUNNER_BLINK : RUNNER[n % RUNNER.length]}
+          </Text>
+          <Text dimColor>{'─'.repeat(track - filled)}</Text>
+          {` ${String(pct).padStart(3)}%`}
+          <Text dimColor>{suffix}</Text>
+        </Text>
+      )
+    }
+    const remotePercent = (a: RemoteAgent) =>
+      Math.max(0, Math.min(MAX_ESTIMATE, Math.floor(((now - a.startedAt) / typicalMs(learned, a.type)) * 100)))
+    // Waiting for the person: the heading flashes, twice a second.
+    const isFlash = Math.floor(n / 2) % 2 === 0
+    const remoteRow = (r: RemoteSession) => {
+      const isWaiting = r.state === 'waiting'
+      const elapsed = clock(Math.max(0, now - r.since))
+      // The state words leave the name at least 8 columns.
+      const word = clip(
+        isWaiting
+          ? isRemoteCompact ? `needs you · ${r.waitingFor}` : 'needs you'
+          : r.state === 'working' ? `working ${elapsed}` : 'idle',
+        Math.max(9, columns - 13),
+      )
+      const name = clipStart(r.name, Math.max(8, columns - 5 - textWidth(word)))
+      const mark = isWaiting ? (isFlash ? '!' : ' ') : r.state === 'working' ? SPIN[n % SPIN.length] : '○'
+      // Its own color while it works; orange stays this session's Claude bar.
+      const own = PALETTE[(r.hue ?? hueOf(r.id)) % PALETTE.length]!
+      return (
+        <Box flexDirection="column">
+          <Text wrap="truncate-end">
+            {' '}
+            <Text color={isWaiting ? 'warning' : r.state === 'working' ? own : undefined} dimColor={r.state === 'idle'} bold>
+              {mark}
+            </Text>
+            <Text bold dimColor={r.state === 'idle'}>{` ${name}`}</Text>
+            {'  '}
+            <Text
+              color={isWaiting ? 'warning' : r.state === 'working' ? own : undefined}
+              dimColor={r.state === 'idle'}
+              inverse={isWaiting && isFlash}
+              bold={isWaiting}
+            >
+              {word}
+            </Text>
+          </Text>
+          {!isRemoteCompact && isWaiting && (
+            <Text wrap="truncate-end" color="warning">{`    ${clip(r.waitingFor, Math.max(4, columns - 4))}`}</Text>
+          )}
+          {/* A working session's bar sits under its name, compact or not. */}
+          {r.state === 'working' &&
+            barLine(4, mainPercent([], learned, r.since, now), own, r.hue ?? 0, `  ${elapsed}`)}
+          {!isRemoteCompact && r.state === 'working' && r.activity !== '' && (
+            <Text wrap="truncate-end" dimColor>{`    ${clip(r.activity, Math.max(4, columns - 4))}`}</Text>
+          )}
+          {r.agents.map(a => {
+            const color = PALETTE[(a.hue ?? hueOf(a.id)) % PALETTE.length]!
+            const pct = remotePercent(a)
+            const time = clock(Math.max(0, now - a.startedAt))
+            const spin = SPIN[(n + hueOf(a.id)) % SPIN.length]
+            // A subagent is told apart by its task, not its type (the type
+            // only when it has no task).
+            const task = a.task || a.type
+            if (isRemoteCompact) {
+              // Indent and spinner, a short bar, percent and time; then the task.
+              const rest = textWidth(`   ${spin} ${String(pct).padStart(3)}%  ${time}`)
+              const width = miniWidth(columns - rest)
+              const room = columns - rest - (width > 0 ? width + 1 : 0) - 2
+              return (
+                <Text wrap="truncate-end">
+                  {'   '}
+                  <Text color={color}>{spin}</Text>
+                  {width > 0 && miniBar(pct, color, a.hue ?? 0, width)}
+                  <Text color={color}>{` ${String(pct).padStart(3)}%`}</Text>
+                  <Text dimColor>{`  ${time}${room >= 4 && task !== '' ? `  ${clip(task, room)}` : ''}`}</Text>
+                </Text>
+              )
+            }
+            return (
+              <Box flexDirection="column">
+                <Text wrap="truncate-end">
+                  {'   '}
+                  <Text color={color}>{`${spin} `}</Text>
+                  {clip(task, Math.max(4, columns - 5))}
+                </Text>
+                {barLine(5, pct, color, hueOf(a.id), `  ${time} · ${plural(a.tools, 'tool')}`)}
+              </Box>
+            )
+          })}
+        </Box>
+      )
+    }
+    const remoteAgents = remoteNow.reduce((k, r) => k + r.agents.length, 0)
+
     const art = mascot(n, look)
     const prop = propOf(look, n)
 
@@ -2166,14 +2675,20 @@ export const register: Register = on => {
             {runningAgentRuns.length > 0
               ? `   ${runningAgentRuns.length} running${agents.length > runningAgentRuns.length ? ` · ${agents.length - runningAgentRuns.length} done` : ''}`
               : ''}
+            {remoteAgents > 0 ? `${runningAgentRuns.length > 0 ? ' ·' : '  '} ${remoteAgents} in other sessions` : ''}
           </Text>
         </Text>
         {agents.length === 0 ? (
-          <Text dimColor> none yet</Text>
+          remoteShown.length === 0 && <Text dimColor> none yet</Text>
         ) : (
           shownAgents.map(isCompact ? compactAgentRow : agentRow)
         )}
         {hiddenAgents > 0 && <Text dimColor>{` +${hiddenAgents} more finished`}</Text>}
+        {remoteShown.map(remoteRow)}
+        {hiddenRemote > 0 && <Text dimColor>{` +${hiddenRemote} more sessions`}</Text>}
+        {remoteFailure !== null && (
+          <Text wrap="truncate-end" color="error">{` other sessions: ${remoteFailure}`}</Text>
+        )}
         <Text bold>Skills</Text>
         {skills.length === 0 ? (
           <Text dimColor> none yet</Text>
