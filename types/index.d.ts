@@ -183,20 +183,29 @@ export type Peer = {
   percent: number
   // When it last published, in $.clock.now() time; stale ones drop off.
   updatedAt: number
+  // The colors it gave its agents, by agent id and by Agent call id, so the
+  // other panes draw them the same.
+  hues?: Record<string, number>
 }
 
 // A subagent running in another Claude Code session on this computer, read
 // from that session's own subagent log.
 export type RemoteAgent = {
   id: string
+  // The Agent call that started it, as its own session's pane knows it.
+  toolUseId: string
   // Its agent type (Explore, general-purpose, ...) and the task it was given.
   type: string
   task: string
+  // A finished one stays listed a while, so the person sees it finished.
+  status: 'running' | 'done'
   startedAt: number
+  endedAt?: number
   // Tool calls it has made so far, and what it is doing now in plain words.
   tools: number
   activity: string
-  // Palette slot: each agent shown keeps its own, unlike its neighbours'.
+  // Palette slot: the one its own session gave it when that session publishes
+  // it, so it reads the same in every pane; else one picked here.
   hue: number
 }
 
@@ -204,8 +213,12 @@ export type RemoteAgent = {
 // keeps under ~/.claude/sessions, whether or not it runs this mod.
 export type RemoteSession = {
   id: string
-  // Its name, as ListAgents and SendMessage address it.
+  // Its name as the person knows it: set with /rename, else the title Claude
+  // gave it; else the name made from its folder (as ListAgents shows it).
   name: string
+  // Whether `name` is such a title, cut at its end, rather than the folder
+  // name, cut from its front so the part that tells them apart stays.
+  isTitled: boolean
   // waiting: a dialog or question waits for the person.
   state: 'working' | 'waiting' | 'idle'
   // What it waits for ("approve Bash", "input needed"); '' unless waiting.
@@ -215,9 +228,6 @@ export type RemoteSession = {
   // What its main loop did last, in plain words; '' when unknown.
   activity: string
   agents: RemoteAgent[]
-  // Palette slot for its mark, words and bar while it works; never orange,
-  // which is this session's own Claude bar.
-  hue: number
 }
 
 declare module 'claude-code' {

@@ -40,6 +40,9 @@ const ORANGE = 'claude'
 const PALETTE = ['#00C8FF', '#9B4DFF', '#00E676', '#FF2E9A', '#3D6BFF', '#FFD400']
 // The Claude bar and plan steps: a hot Claude orange in the same saturation.
 const HOT = '#FF6B1A'
+// Other sessions' own lines (mark, words, bar): a neutral grey, so the
+// palette is left to agents and orange to this session's Claude bar.
+const SESSION_COLOR = '#A8A8A8'
 // Tiny mini Clawd riding the bar, 3 characters: just its face, with the real
 // Clawd eyes (the notches of ▛█▜). The eyes glance left and right as it runs
 // and it blinks now and then; eyes shut once done, crossed out if it failed.
@@ -1049,7 +1052,18 @@ const toPeer = (raw: unknown): Peer | undefined => {
     activity: plainOf(p.activity),
     percent: typeof p.percent === 'number' ? Math.max(0, Math.min(100, Math.round(p.percent))) : 0,
     updatedAt: p.updatedAt,
+    hues: huesOf(p.hues),
   }
+}
+
+// A published color map, keeping only whole palette slots.
+const huesOf = (raw: unknown): Record<string, number> => {
+  const out: Record<string, number> = {}
+  if (!raw || typeof raw !== 'object') return out
+  for (const [key, value] of Object.entries(raw as Record<string, unknown>).slice(0, 4 * MAX_RUNS)) {
+    if (typeof value === 'number' && Number.isInteger(value) && value >= 0) out[key] = value % PALETTE.length
+  }
+  return out
 }
 
 // Publish this session's status for the other sessions, when it changed or
@@ -1091,6 +1105,13 @@ const shareStatus = async ($: EngineInterface) => {
     activity: isAgentsOnly ? `${plural(running.length, 'agent')} working` : state === 'working' ? m.activity : '',
     percent: isAgentsOnly ? agentsPercent : state === 'done' ? 100 : mainPercent(planNow, learned, since, now),
     updatedAt: now,
+    // Its agents' colors, by the agent's id and its Agent call's id, so the
+    // other panes draw each agent in the same color.
+    hues: Object.fromEntries(
+      list
+        .filter(r => r.kind === 'agent' && r.hue !== undefined)
+        .flatMap(r => [[r.id, r.hue!], ...(r.agentId ? [[r.agentId, r.hue!]] : [])]),
+    ),
   }
   const shape = JSON.stringify({ ...mine, updatedAt: 0 })
   if (shape !== lastShared || now - lastSharedAt >= HEARTBEAT_MS || now < lastSharedAt) {
@@ -1100,6 +1121,7 @@ const shareStatus = async ($: EngineInterface) => {
   }
 
   const found: Peer[] = []
+  const heard = new Set<string>()
   for (const key of await $.store.keys()) {
     if (!key.startsWith(PEER_PREFIX) || key === `${PEER_PREFIX}${me.id}`) continue
     const peer = toPeer(await $.store.get(key).catch(() => undefined))
@@ -1107,8 +1129,12 @@ const shareStatus = async ($: EngineInterface) => {
       await $.store.delete(key).catch(() => {})
       continue
     }
+    // Every session's agent colors, whatever its project, for Agents.
+    peerHues.set(peer.id, peer.hues ?? {})
+    heard.add(peer.id)
     if (now - peer.updatedAt <= PEER_STALE_MS && sameProject(peer.cwd, me.cwd)) found.push(peer)
   }
+  for (const id of [...peerHues.keys()]) if (!heard.has(id)) peerHues.delete(id)
   // Sessions that need the person or are working come first, so they are
   // never the ones folded into "+N more".
   const rank: Record<Peer['state'], number> = { waiting: 0, working: 1, failed: 2, done: 3, idle: 4 }
@@ -1142,7 +1168,14 @@ const REMOTE_CHUNK = 4 * 1024 * 1024
 const REMOTE_AGENT_STALE_MS = 15 * 60_000
 // A session that says it works but has written nothing this long has stopped.
 const REMOTE_STALE_MS = 30 * 60_000
+// A finished subagent stays listed, marked done, this long after its last write.
+const REMOTE_DONE_SHOWN_MS = 10 * 60_000
 const SHOWN_REMOTE = 4
+
+// The colors other sessions with this mod gave their agents, as they publish
+// them beside their status: session id -> agent id or Agent call id -> slot.
+// An agent is drawn in its own session's color everywhere.
+const peerHues = new Map<string, Record<string, number>>()
 
 // Where Claude Code keeps its files: the folder above `projects/` in this
 // session's transcript path. Set at session start; undefined until then.
@@ -1174,6 +1207,18 @@ const jsonLines = (lines: readonly string[]) => {
   return out
 }
 
+// The newest titles among transcript entries: one set with /rename
+// (custom-title), and the one Claude gave the session (ai-title).
+const titlesIn = (entries: readonly Record<string, any>[]) => {
+  let custom = ''
+  let ai = ''
+  for (const entry of entries) {
+    if (entry.type === 'custom-title') custom = plainLine(plainOf(entry.customTitle)) || custom
+    if (entry.type === 'ai-title') ai = plainLine(plainOf(entry.aiTitle)) || ai
+  }
+  return { custom, ai }
+}
+
 // What a session's main loop did last: its newest call, or 'writing a reply'.
 const lastDoing = (entries: readonly Record<string, any>[]) => {
   for (let i = entries.length - 1; i >= 0; i -= 1) {
@@ -1199,8 +1244,13 @@ type AgentLog = {
   startedAt: number
   type: string
   task: string
+  // The Agent call that started it, as its own session's pane knows it.
+  toolUseId: string
 }
-type SessionTail = { size: number; activity: string }
+// A transcript's tail as read last: its size, the main loop's last action,
+// and the session's title (the one it set with /rename, else the one Claude
+// gave it), kept from earlier reads when the tail holds none.
+type SessionTail = { size: number; activity: string; title: string; customTitle: string }
 const agentLogs = new Map<string, AgentLog>()
 const sessionTails = new Map<string, SessionTail>()
 let isScanning = false
@@ -1262,10 +1312,12 @@ const readAgents = async ($: EngineInterface, folder: string, now: number, live:
         carry: '',
         tools: 0,
         activity: '',
-        isDone: false,
+        // Claude Code marks the meta file finished once the agent ends.
+        isDone: parsed.finished === true,
         startedAt: isLong ? file.mtimeMs : 0,
         type: plainOf(parsed.agentType) || 'agent',
         task: plainOf(parsed.description),
+        toolUseId: plainOf(parsed.toolUseId),
       }
       agentLogs.set(path, log)
       // A long log is read from inside a line: drop that partial line.
@@ -1275,12 +1327,16 @@ const readAgents = async ($: EngineInterface, folder: string, now: number, live:
       await readAgentLog($, path, file.size, log).catch(() => {})
       if (log.carry.startsWith('\u0000')) log.carry = ''
     }
-    if (log.isDone) continue
+    // A finished one stays a while, so the person sees which ones finished.
+    if (log.isDone && now - file.mtimeMs > REMOTE_DONE_SHOWN_MS) continue
     running.push({
       id,
+      toolUseId: log.toolUseId,
       type: log.type,
       task: log.task,
+      status: log.isDone ? 'done' : 'running',
       startedAt: log.startedAt || file.mtimeMs,
+      ...(log.isDone ? { endedAt: file.mtimeMs } : {}),
       tools: log.tools,
       activity: log.activity,
       hue: 0,
@@ -1339,10 +1395,23 @@ const scanRemote = async ($: EngineInterface) => {
         if (text !== undefined) {
           const lines = text.split('\n')
           if (offset > 0) lines.shift()
-          tail = { size: stat.size, activity: lastDoing(jsonLines(lines)) }
+          const entries = jsonLines(lines)
+          const titles = titlesIn(entries)
+          tail = {
+            size: stat.size,
+            activity: lastDoing(entries),
+            title: titles.ai || tail?.title || '',
+            customTitle: titles.custom || tail?.customTitle || '',
+          }
           sessionTails.set(transcript, tail)
         }
       }
+      // Its name as the person knows it: the one set with /rename, else the
+      // title Claude gave it; the name made from its folder only without one.
+      const recordName = plainOf(record.name)
+      const nameSource = plainOf(record.nameSource)
+      const isNamed = recordName !== '' && nameSource !== '' && nameSource !== 'derived'
+      const title = tail?.customTitle || (isNamed ? recordName : '') || tail?.title || ''
       const lastWrite = Math.max(since, stat?.mtimeMs ?? 0)
       const state: RemoteSession['state'] =
         status === 'waiting' || waitingFor !== ''
@@ -1354,13 +1423,13 @@ const scanRemote = async ($: EngineInterface) => {
       if (state === 'idle' && agents.length === 0) continue
       found.push({
         id,
-        name: plainOf(record.name) || baseName(cwd),
+        name: title || recordName || baseName(cwd),
+        isTitled: title !== '',
         state,
         waitingFor: state === 'waiting' ? waitingFor || 'your answer' : '',
         since,
         activity: tail?.activity ?? '',
         agents,
-        hue: 0,
       })
     }
     // Logs of sessions and agents no longer listed are forgotten.
@@ -1370,32 +1439,37 @@ const scanRemote = async ($: EngineInterface) => {
     // Sessions waiting for the person first, then working ones.
     const rank = { waiting: 0, working: 1, idle: 2 }
     found.sort((a, b) => rank[a.state] - rank[b.state] || a.name.localeCompare(b.name))
-    isRemoteLive = found.length > 0
+    // Animate only while something there moves: finished agents alone don't.
+    isRemoteLive = found.some(r => r.state !== 'idle' || r.agents.some(a => a.status === 'running'))
     const before = await read($, remote)
 
-    // Every session and agent shown keeps one color, and a new one takes the
-    // color fewest shown have, this session's own running agents counted.
-    // Orange is not among them: it is this session's own Claude bar.
-    const kept = new Map(before.flatMap(r => [[r.id, r.hue] as const, ...r.agents.map(a => [a.id, a.hue] as const)]))
+    // An agent is drawn in the color its own session gave it (published beside
+    // that session's status, when it runs this mod), so it reads the same in
+    // every pane. Without one, it keeps the color it was first shown in here,
+    // a new one taking the color fewest running agents have, this session's
+    // own counted. Orange is never one: it is the Claude bar.
+    const kept = new Map(before.flatMap(r => r.agents.map(a => [a.id, a.hue] as const)))
     const used = PALETTE.map(() => 0)
     const own = (await read($, runs)).filter(r => r.kind === 'agent' && r.status === 'running')
     for (const r of own) used[(r.hue ?? 0) % PALETTE.length]!++
-    // A session takes one only while it works: waiting it flashes in the
-    // warning color, idle it is dim.
-    const all: { id: string; hue: number }[] = found.flatMap(r => [...(r.state === 'working' ? [r] : []), ...r.agents])
-    for (const a of all) {
-      const hue = kept.get(a.id)
-      if (hue !== undefined) {
-        a.hue = hue
-        used[hue % PALETTE.length]!++
+    const unset: RemoteAgent[] = []
+    for (const r of found) {
+      const published = peerHues.get(r.id)
+      for (const a of r.agents) {
+        const hue = published?.[a.id] ?? (a.toolUseId !== '' ? published?.[a.toolUseId] : undefined) ?? kept.get(a.id)
+        if (hue === undefined) {
+          unset.push(a)
+          continue
+        }
+        a.hue = hue % PALETTE.length
+        if (a.status === 'running') used[a.hue]!++
       }
     }
-    for (const a of all) {
-      if (kept.get(a.id) !== undefined) continue
+    for (const a of unset) {
       a.hue = used.indexOf(Math.min(...used))
-      used[a.hue]!++
+      if (a.status === 'running') used[a.hue]!++
     }
-    remoteHues = new Set(all.map(a => a.hue % PALETTE.length))
+    remoteHues = new Set(found.flatMap(r => r.agents.filter(a => a.status === 'running').map(a => a.hue)))
 
     if (JSON.stringify(before) !== JSON.stringify(found)) await update($, remote, () => found)
     if ((await read($, remoteError)) !== failure) await update($, remoteError, () => failure)
@@ -2022,7 +2096,8 @@ export const register: Register = on => {
     const remoteBudget = Math.max(4, Math.floor(room * 0.5))
     const fullRows = (r: RemoteSession) =>
       1 + (r.state === 'working' ? 1 + (r.activity !== '' ? 1 : 0) : 0) + (r.state === 'waiting' ? 1 : 0) + 2 * r.agents.length
-    const compactRows = (r: RemoteSession) => 1 + (r.state === 'working' ? 1 : 0) + r.agents.length
+    const compactRows = (r: RemoteSession) =>
+      1 + (r.state === 'working' ? 1 : 0) + r.agents.filter(a => a.status === 'running').length
     const remoteCapped = remoteNow.slice(0, SHOWN_REMOTE)
     const isRemoteCompact = remoteCapped.reduce((k, r) => k + fullRows(r), 0) > remoteBudget
     const remoteRowsOf = isRemoteCompact ? compactRows : fullRows
@@ -2530,18 +2605,19 @@ export const register: Register = on => {
     )
 
     // Other sessions: a bar like an agent row's, `indent` columns in, with a
-    // mini Clawd running at its head and `suffix` after the percent.
-    const barLine = (indent: number, pct: number, color: string, seed: number, suffix: string) => {
+    // mini Clawd running at its head (or `runner` once it ended) and `suffix`
+    // after the percent.
+    const barLine = (indent: number, pct: number, color: string, seed: number, suffix: string, runner?: string) => {
       const width = Math.max(RUNNER[0]!.length + 3, Math.min(barWidth, columns - indent - 5 - suffix.length))
       const track = width - RUNNER[0]!.length
-      const filled = Math.round((pct / 100) * track)
+      const filled = Math.round((Math.min(100, pct) / 100) * track)
       const isBlink = (n + seed * 5) % BLINK_EVERY === BLINK_EVERY - 1
       return (
         <Text wrap="truncate-end">
           {' '.repeat(indent)}
           <Text color={color}>{'━'.repeat(filled)}</Text>
           <Text color={color} bold>
-            {isBlink ? RUNNER_BLINK : RUNNER[n % RUNNER.length]}
+            {runner ?? (isBlink ? RUNNER_BLINK : RUNNER[n % RUNNER.length])}
           </Text>
           <Text dimColor>{'─'.repeat(track - filled)}</Text>
           {` ${String(pct).padStart(3)}%`}
@@ -2556,17 +2632,24 @@ export const register: Register = on => {
     const remoteRow = (r: RemoteSession) => {
       const isWaiting = r.state === 'waiting'
       const elapsed = clock(Math.max(0, now - r.since))
+      // One line each, its finished agents give up their rows to a count.
+      const agentsShown = isRemoteCompact ? r.agents.filter(a => a.status === 'running') : r.agents
+      const doneHidden = r.agents.length - agentsShown.length
       // The state words leave the name at least 8 columns.
       const word = clip(
-        isWaiting
+        (isWaiting
           ? isRemoteCompact ? `needs you · ${r.waitingFor}` : 'needs you'
-          : r.state === 'working' ? `working ${elapsed}` : 'idle',
+          : r.state === 'working' ? `working ${elapsed}` : 'idle') + (doneHidden > 0 ? ` · ${doneHidden} done` : ''),
         Math.max(9, columns - 13),
       )
-      const name = clipStart(r.name, Math.max(8, columns - 5 - textWidth(word)))
+      // A title is cut at its end; a name made from the folder from its front,
+      // keeping the part that tells such names apart.
+      const nameRoom = Math.max(8, columns - 5 - textWidth(word))
+      const name = r.isTitled ? clip(r.name, nameRoom) : clipStart(r.name, nameRoom)
       const mark = isWaiting ? (isFlash ? '!' : ' ') : r.state === 'working' ? SPIN[n % SPIN.length] : '○'
-      // Its own color while it works; orange stays this session's Claude bar.
-      const own = PALETTE[(r.hue ?? hueOf(r.id)) % PALETTE.length]!
+      // A neutral color while it works, leaving the palette to the agents
+      // and orange to this session's Claude bar.
+      const own = SESSION_COLOR
       return (
         <Box flexDirection="column">
           <Text wrap="truncate-end">
@@ -2590,15 +2673,18 @@ export const register: Register = on => {
           )}
           {/* A working session's bar sits under its name, compact or not. */}
           {r.state === 'working' &&
-            barLine(4, mainPercent([], learned, r.since, now), own, r.hue ?? 0, `  ${elapsed}`)}
+            barLine(4, mainPercent([], learned, r.since, now), own, hueOf(r.id), `  ${elapsed}`)}
           {!isRemoteCompact && r.state === 'working' && r.activity !== '' && (
             <Text wrap="truncate-end" dimColor>{`    ${clip(r.activity, Math.max(4, columns - 4))}`}</Text>
           )}
-          {r.agents.map(a => {
+          {agentsShown.map(a => {
             const color = PALETTE[(a.hue ?? hueOf(a.id)) % PALETTE.length]!
-            const pct = remotePercent(a)
-            const time = clock(Math.max(0, now - a.startedAt))
-            const spin = SPIN[(n + hueOf(a.id)) % SPIN.length]
+            // A finished one: ✓, a full bar ending in the done face, its run time.
+            const isDone = a.status === 'done'
+            const pct = isDone ? 100 : remotePercent(a)
+            const time = clock(Math.max(0, (a.endedAt ?? now) - a.startedAt))
+            const spin = isDone ? '✓' : SPIN[(n + hueOf(a.id)) % SPIN.length]
+            const runner = isDone ? RUNNER_DONE : undefined
             // A subagent is told apart by its task, not its type (the type
             // only when it has no task).
             const task = a.task || a.type
@@ -2611,7 +2697,7 @@ export const register: Register = on => {
                 <Text wrap="truncate-end">
                   {'   '}
                   <Text color={color}>{spin}</Text>
-                  {width > 0 && miniBar(pct, color, a.hue ?? 0, width)}
+                  {width > 0 && miniBar(pct, color, a.hue ?? 0, width, runner)}
                   <Text color={color}>{` ${String(pct).padStart(3)}%`}</Text>
                   <Text dimColor>{`  ${time}${room >= 4 && task !== '' ? `  ${clip(task, room)}` : ''}`}</Text>
                 </Text>
@@ -2622,16 +2708,16 @@ export const register: Register = on => {
                 <Text wrap="truncate-end">
                   {'   '}
                   <Text color={color}>{`${spin} `}</Text>
-                  {clip(task, Math.max(4, columns - 5))}
+                  <Text dimColor={isDone}>{clip(task, Math.max(4, columns - 5))}</Text>
                 </Text>
-                {barLine(5, pct, color, hueOf(a.id), `  ${time} · ${plural(a.tools, 'tool')}`)}
+                {barLine(5, pct, color, hueOf(a.id), `  ${time} · ${plural(a.tools, 'tool')}`, runner)}
               </Box>
             )
           })}
         </Box>
       )
     }
-    const remoteAgents = remoteNow.reduce((k, r) => k + r.agents.length, 0)
+    const remoteAgents = remoteNow.reduce((k, r) => k + r.agents.filter(a => a.status === 'running').length, 0)
 
     const art = mascot(n, look)
     const prop = propOf(look, n)

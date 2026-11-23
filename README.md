@@ -74,15 +74,20 @@ Skills
 - **Agents.** Every subagent Claude starts, newest first, each in its own color, with an estimated progress bar, run
   time and tool count. Click a row to open a dropdown of its latest tool calls and how long each took.
   Below them, every **other Claude Code session on this computer** that is working, waiting for you or running
-  subagents, in any project and whether or not it has this mod: its name (the one `ListAgents` shows, cut from the
-  front so the part that tells them apart stays), and then:
+  subagents, in any project and whether or not it has this mod. It shows by its name: the one you gave it with
+  `/rename`, else the title Claude gave it (`Ticket 5 branch`); only a session with neither shows the name made from
+  its folder (`genome-m6-mvp-999d414c-25`, cut from the front so the part that tells them apart stays). Then:
   - **Waiting for you** (a permission prompt, a question, an open dialog): its line flashes with `needs you`, and the
     line under it says what it waits for. These come first.
-  - **Working:** a bar for its turn, how long it has worked, and what it is doing now, in a color of its own (orange
-    is kept for this session's Claude bar).
-  - **Its subagents still running:** each in a color no other agent on screen has (while the palette's six last),
-    named by its task, with its own bar, run time and tool count. A subagent drops
-    off when it hands back its result.
+  - **Working:** a grey bar for its turn, how long it has worked, and what it is doing now (orange is kept for this
+    session's Claude bar, and the colors for agents).
+  - **Its subagents:** each named by its task, with its own bar, run time and tool count. One that finished shows `✓`
+    and a full bar for 10 minutes, so you can see which ones are done; when space is short they are counted on the
+    session's line instead (`working 4:10 · 2 done`).
+
+  **An agent has the same color in every pane.** The session that runs an agent picks its color, avoiding every color
+  agents running anywhere on the computer already have, and publishes it beside its status; the other sessions' panes
+  draw the agent in that color. (An agent of a session without this mod gets a color picked by the pane showing it.)
 
   These are read from the files Claude Code keeps for every session under `~/.claude` (each session's record in
   `sessions/`, and its transcript and subagent logs in `projects/`), about every two seconds. The access-token files

@@ -55,10 +55,12 @@ Each requirement has an ID so test reports can point at it. "Narrow" means a 40-
 - **R4.2** Clicking an agent row opens a list of its latest tool calls, with the same readable targets as R2.
 - **R4.3** Every skill Claude loads is listed with status and time.
 - **R4.4** Under this session's agents, Agents lists every other Claude Code session on the computer that is working,
-  waiting for the person or running subagents, in any project and with or without this mod: its name (cut from the
-  front when long), its state, a bar while it works, what it does or waits for, and each running subagent by its
-  task (its type only when it has none), with its bar, time and tool count, in a color no other agent shown has (while six colors last), kept for as
-  long as it runs. A session waiting for the person flashes and comes first. They are read from
+  waiting for the person or running subagents, in any project and with or without this mod: its name (the one set
+  with /rename, else the title Claude gave it, else the name made from its folder, cut from the front when long), its
+  state, a grey bar while it works, what it does or waits for, and each subagent by its task (its type only when it
+  has none), with its bar, time and tool count. A finished subagent shows done for 10 minutes. An agent has the same
+  color in every session's pane: the session running it picks one no running agent on the computer has (while six
+  colors last) and publishes it. A session waiting for the person flashes and comes first. They are read from
   the files Claude Code keeps per session (records under `sessions/`, transcripts and subagent logs under
   `projects/`); the token files beside the records are never read. A failed read says so in one line. These rows
   take at most half the room left for Agents and Skills, going one line each and then `+N more sessions` past it.

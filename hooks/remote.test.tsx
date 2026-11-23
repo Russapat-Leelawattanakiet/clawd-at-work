@@ -96,6 +96,13 @@ const disk = (path: string) => path.replace(/\\/g, '/').replace(/^[A-Za-z]:/, ''
 const engine = (on: On, files: Record<string, File>, reads: string[] = [], stored: Record<string, unknown> = {}) => {
   const clock = mock.clock(on, { now: 1_000 })
   mock.store(on, stored)
+  engineFiles(on, files, reads)
+  return clock
+}
+
+// The engine but for its clock and store: the session, `files` as its disk,
+// and `agents` as what `$.agent.list()` reports.
+const engineFiles = (on: On, files: Record<string, File>, reads: string[] = [], agents: unknown[] = []) => {
   on('command.register', () => ({ value: { command: 'clawd-at-work' } }))
   on('ui.open', () => ({ value: { isPlaced: true } }))
   on('session.start', (_, e) => ({ cwd: e.cwd }))
@@ -103,7 +110,7 @@ const engine = (on: On, files: Record<string, File>, reads: string[] = [], store
   on('session.id', () => ({ value: 'me' }) as never)
   on('session.repo', () => ({ value: null }) as never)
   on('session.info', () => ({ value: { transcriptPath: `${HOME}/projects/-home-me-repo/me.jsonl` } }) as never)
-  on('agent.list', () => ({ value: [] }))
+  on('agent.list', () => ({ value: agents }) as never)
   on('fs.list', (_, e) => {
     const prefix = `${disk(e.path)}/`
     const names = Object.keys(files).filter(p => p.startsWith(prefix) && !p.slice(prefix.length).includes('/'))
@@ -130,7 +137,6 @@ const engine = (on: On, files: Record<string, File>, reads: string[] = [], store
     const offset = e.offset ?? 0
     return { value: file.text.slice(offset, e.length === undefined ? undefined : offset + e.length) }
   })
-  return clock
 }
 
 const settle = async (clock: { set: (ms: number) => Promise<unknown> }, until = 31_000, from = 1_250) => {
@@ -156,11 +162,13 @@ test('other sessions show under Agents: their name, state, bar and running subag
   )
   expect(await ui.find({ type: 'Text', text: /^ {4}━*(▛█▜|▜█▛|███)─* +\d+% {2}0:30$/ })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /^ {4}Reading parser\.py$/ })).toBeDefined()
-  // Its running Explore agent, by its task alone, with a bar of its own; the finished one is gone.
-  expect((await ui.find({ type: 'Text', text: /find the parser tests/ }))?.text).toMatch(/^ {3}\S find the parser tests$/)
+  // Its running Explore agent, by its task alone, with a bar of its own.
+  expect((await ui.find({ type: 'Text', text: /find the parser tests/ }))?.text).toMatch(/^ {3}[◐◓◑◒] find the parser tests$/)
   expect(await ui.find({ type: 'Text', text: /Explore/ })).toBeUndefined()
   expect(await ui.find({ type: 'Text', text: /^ {5}━*(▛█▜|▜█▛|███)─* +\d+% {2}0:30 · 2 tools$/ })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: /review the fix/ })).toBeUndefined()
+  // The finished one stays a while, marked done, with a full bar and its run time.
+  expect((await ui.find({ type: 'Text', text: /review the fix/ }))?.text).toMatch(/^ {3}✓ review the fix$/)
+  expect(await ui.find({ type: 'Text', text: /^ {5}━+\S+ 100% {2}0:19 · 1 tool$/ })).toBeDefined()
   // A resting session with nothing running, and this session itself, are not listed.
   expect(await ui.find({ type: 'Text', text: /999d414c-2a|clawd-at-work-d5/ })).toBeUndefined()
   // Agents no longer says "none yet": only Skills does.
@@ -216,8 +224,10 @@ test("with little room, other sessions still show their bars, a session's under 
     expect((await ui.find({ type: 'Text', text: /find the/ }))?.text).toMatch(
       new RegExp(`^ {3}\\S ${bar.source} +\\d+% {2}0:30 {2}find the`),
     )
-    // A working session's name on its own line, its bar beneath.
-    expect((await ui.find({ type: 'Text', text: /-25 {2}working/ }))?.text).toMatch(/^ \S \S*-25 {2}working 0:30$/)
+    // A working session's name on its own line, its bar beneath; its finished
+    // agent gives its row up to a count.
+    expect((await ui.find({ type: 'Text', text: /-25 {2}working/ }))?.text).toMatch(/^ \S \S*-25 {2}working 0:30 · 1 done$/)
+    expect(await ui.find({ type: 'Text', text: /review the fix/ })).toBeUndefined()
     expect(await ui.find({ type: 'Text', text: new RegExp(`^ {4}${bar.source} +\\d+% {2}0:30$`) })).toBeDefined()
     await ui.unmount()
   }
@@ -279,7 +289,7 @@ test('a session in this project shown under Agents is not listed again under Ses
   await ui.unmount()
 })
 
-test('a subagent that hands back leaves the list', async ($, on) => {
+test('a subagent that hands back shows as done, its session idle', async ($, on) => {
   const files = computer()
   const clock = engine(on, files)
   await $.session.start({ cwd: '/home/me/repo', surface: 'terminal', isInteractive: true })
@@ -288,7 +298,7 @@ test('a subagent that hands back leaves the list', async ($, on) => {
   const log = files[`${PROJECT}/p1/subagents/agent-a9.jsonl`]!
   log.text += call('SubagentHandback', { summary: 'found them' })
   log.mtimeMs = 32_000
-  // p1 finished its turn too: nothing of it is left to show.
+  // p1 finished its turn too: it rests, showing which of its agents finished.
   files[`${HOME}/sessions/111.json`]!.text = JSON.stringify({
     sessionId: 'p1',
     cwd: '/work/genome',
@@ -299,9 +309,91 @@ test('a subagent that hands back leaves the list', async ($, on) => {
   await settle(clock, 36_000, 31_250)
 
   const ui = await $.ui.mount(pane(60, 80))
-  expect(await ui.find({ type: 'Text', text: /find the parser|999d414c-25/ })).toBeUndefined()
+  expect((await ui.find({ type: 'Text', text: /999d414c-25/ }))?.text).toMatch(/^ ○ genome-m6-mvp-999d414c-25 {2}idle$/)
+  expect((await ui.find({ type: 'Text', text: /find the parser/ }))?.text).toMatch(/^ {3}✓ find the parser tests$/)
+  expect((await ui.find({ type: 'Text', text: /review the fix/ }))?.text).toMatch(/^ {3}✓ review the fix$/)
+  // Nothing of it runs: the heading counts no agent in other sessions.
+  expect((await ui.find({ type: 'Text', text: /^Agents/ }))?.text).toMatch(/^Agents\s*$/)
   expect(await ui.find({ type: 'Text', text: /999d414c-0e/ })).toBeDefined()
   await ui.unmount()
+})
+
+test('a session is shown by its title: the one set with /rename, else the one Claude gave it', async ($, on) => {
+  const files = computer()
+  const title = (type: string, key: string, value: string) => line({ type, [key]: value, sessionId: 'p1' })
+  files[`${PROJECT}/p1.jsonl`]!.text += title('ai-title', 'aiTitle', 'Ticket 5 branch')
+  const clock = engine(on, files)
+  await $.session.start({ cwd: '/home/me/repo', surface: 'terminal', isInteractive: true })
+  await settle(clock)
+
+  let ui = await $.ui.mount(pane(40, 80))
+  expect((await ui.find({ type: 'Text', text: /Ticket 5/ }))?.text).toMatch(/^ \S Ticket 5 branch {2}working 0:30$/)
+  expect(await ui.find({ type: 'Text', text: /999d414c-25/ })).toBeUndefined()
+  await ui.unmount()
+
+  // Renamed: that name wins, and a long one is cut at its end.
+  const file = files[`${PROJECT}/p1.jsonl`]!
+  file.text += title('custom-title', 'customTitle', 'Parser rewrite for the genome importer')
+  file.mtimeMs = 32_000
+  await settle(clock, 36_000, 31_250)
+  ui = await $.ui.mount(pane(40, 80))
+  expect((await ui.find({ type: 'Text', text: /Parser/ }))?.text).toMatch(/^ \S Parser rewrite for th\S*… {2}working 0:3\d$/)
+  await ui.unmount()
+})
+
+test("an agent is drawn in the color its own session gave it, and a new one here avoids it", async ($, on) => {
+  // A store of the test's own, to read what the mod publishes.
+  const kept = new Map<string, unknown>([
+    // p1 runs this mod too, in another project, and gave its agent a9 slot 0.
+    ['session:p1', { id: 'p1', cwd: '/work/genome', task: 'run the suite', state: 'working', activity: '', percent: 10, updatedAt: 30_000, hues: { a9: 0 } }],
+  ])
+  const clock = mock.clock(on, { now: 1_000 })
+  on('store.get', (_: unknown, e: { key: string }) => ({ value: kept.get(e.key) }) as never)
+  on('store.set', (_: unknown, e: { key: string; value: unknown }) => {
+    kept.set(e.key, JSON.parse(JSON.stringify(e.value)))
+    return { value: undefined } as never
+  })
+  on('store.delete', (_: unknown, e: { key: string }) => {
+    kept.delete(e.key)
+    return { value: undefined } as never
+  })
+  on('store.keys', () => ({ value: [...kept.keys()] }) as never)
+  const files = computer()
+  // This session's agent x1, listed once it is spawned.
+  const listed: unknown[] = []
+  engineFiles(on, files, [], listed)
+  on('turn.start', (_, e) => ({ turnId: e.turnId }))
+  on('agent.spawn', () => ({ agentId: 'x1', model: 'test' }))
+  await $.session.start({ cwd: '/home/me/repo', surface: 'terminal', isInteractive: true })
+  await settle(clock)
+
+  // a9 is drawn in slot 0, cyan, as its own session drew it.
+  let ui = await $.ui.mount(pane(60, 80))
+  expect(String((await ui.find({ type: 'Text', text: /^[◐◓◑◒] $/ }))?.props.color)).toBe('#00C8FF')
+  await ui.unmount()
+
+  // An agent started here skips cyan, which a9 holds, and is published in its
+  // own color for the other panes.
+  await $.turn.start({ text: 'look', turnId: 't1' })
+  await $.agent.spawn({
+    tool_use_id: 'tu1',
+    prompt: 'look',
+    description: 'find code',
+    subagentType: 'Explore',
+    provider: { plugin: 'engine', tier: 'user' },
+    parentModel: 'test',
+    background: true,
+    fork: false,
+  } as never)
+  listed.push({ id: 'x1', description: 'find code', type: 'Explore', status: 'running' })
+  await settle(clock, 36_000, 31_250)
+  ui = await $.ui.mount(pane(60, 80))
+  const mine = await ui.find({ type: 'Button', text: /Explore/ })
+  await ui.unmount()
+  expect(mine).toBeDefined()
+  const published = (kept.get('session:me') as { hues?: Record<string, number> } | undefined)?.hues
+  expect(published?.tu1).toBe(1)
+  expect(published?.x1).toBe(1)
 })
 
 test('every subagent shown has its own color, and keeps it when another starts', async ($, on) => {
@@ -318,10 +410,10 @@ test('every subagent shown has its own color, and keeps it when another starts',
   await $.session.start({ cwd: '/home/me/repo', surface: 'terminal', isInteractive: true })
   await settle(clock)
 
-  // The spinner beside each agent's type is drawn in that agent's color.
+  // The spinner beside each running agent is drawn in that agent's color.
   const colors = async () => {
     const ui = await $.ui.mount(pane(60, 80))
-    const marks = (await ui.findAll({ type: 'Text', text: /^\S $/ })).map(t => String(t.props.color))
+    const marks = (await ui.findAll({ type: 'Text', text: /^[◐◓◑◒] $/ })).map(t => String(t.props.color))
     await ui.unmount()
     return marks
   }
@@ -339,7 +431,7 @@ test('every subagent shown has its own color, and keeps it when another starts',
   // The four already shown keep theirs.
   expect(first.every(c => second.includes(c))).toBe(true)
 
-  // The working session has a color of its own too, unlike its agents', and
+  // The working session is drawn in a neutral grey, unlike any agent, and
   // nothing of the other sessions is orange, this session's Claude bar color.
   const ui = await $.ui.mount(pane(60, 80))
   const sessionColor = String((await ui.find({ type: 'Text', text: /^working 0:3\d$/ }))?.props.color)
