@@ -48,7 +48,8 @@ Skills
   session and this week, and the session's cost. The week's token count covers only sessions that have this mod
   installed on this computer, and it starts over when the weekly window resets. The limit bars appear only when you're
   logged in with a Claude subscription, after Claude's first reply.
-- **Claude bar.** Progress of the current turn. A mini Clawd runs at the head of the bar. Below it is what Claude is
+- **Claude bar.** Progress of the current turn, in this session's own color (orange unless you or the mod pick
+  another; see [Session colors](#session-colors)). A mini Clawd runs at the head of the bar. Below it is what Claude is
   doing right now, in plain words: thinking, writing a reply, or the action and its target (for example
   `Editing register.tsx`, `Searching for usage`), plus step and tool counts.
 - **Done.** When a turn ends, the Claude bar gives way to a one-line summary that stays until your next prompt, such as
@@ -79,8 +80,9 @@ Skills
   its folder (`genome-m6-mvp-999d414c-25`, cut from the front so the part that tells them apart stays). Then:
   - **Waiting for you** (a permission prompt, a question, an open dialog): its line flashes with `needs you`, and the
     line under it says what it waits for. These come first.
-  - **Working:** a grey bar for its turn, how long it has worked, and what it is doing now (orange is kept for this
-    session's Claude bar, and the colors for agents).
+  - **Working:** its name and a bar for its turn in **that session's own color** (the one it shows on its own Claude
+    bar, see [Session colors](#session-colors)), how long it has worked, and what it is doing now. A session without
+    this mod gets a color picked here that no other session shown has.
   - **Its subagents:** each named by its task, with its own bar, run time and tool count. One that finished shows `✓`
     and a full bar for 10 minutes, so you can see which ones are done; when space is short they are counted on the
     session's line instead (`working 4:10 · 2 done`).
@@ -153,6 +155,30 @@ There is nothing to set up: the pane opens when a session starts and updates by 
 | Reopen the pane after closing it | Type `/clawd-at-work` |
 | See an agent's tool calls | Click its row in **Agents** (click again to close) |
 | Hide or show the steps | Click the **Steps** (or **Plan**) heading |
+| Pick this session's color | `/clawd-at-work color blue` (`/clawd-at-work color` lists them; `auto` picks one for you) |
+| Turn sounds off or on | `/clawd-at-work sound off` / `/clawd-at-work sound on` (for every session) |
+| Hear the "needs you" sound | `/clawd-at-work sound test` |
+
+### Session colors
+
+Each session has a color of its own: its Claude bar, its steps, Recent and edited files are drawn in it, and so is its
+line under **Agents** and **Sessions** in every other session's pane, so you can tell at a glance which session is
+which. Choose one with `/clawd-at-work color <name>`: orange, blue, green, pink, cyan, purple, yellow, red, teal or lime.
+Until you choose, a new session takes the first color no other running session has (orange for the first). A
+session's own agents never take its color, so an agent is never mistaken for its session. Clawd stays orange.
+
+### Sounds
+
+The pane plays a sound when Claude needs you:
+
+- **Needs you** (two rising notes): a permission prompt opens, Claude asks you a question, or a plan waits for your
+  approval. Also when another session that runs without this mod starts waiting for you (only one pane plays it).
+- **Done** (a soft falling pair): a turn of 10 seconds or more ends. A turn you stopped, or one over in a moment, plays
+  nothing; one that ended on an API error plays the **needs you** sound instead.
+
+Each session plays its own sounds, so three sessions waiting means three sounds, one each. On Windows they play
+through PowerShell, on macOS through `afplay`, on Linux through `paplay` or `aplay`. The setting is shared: `sound off`
+in one session silences them all within moments.
 
 ### Pane shows at the bottom instead of the side?
 
@@ -206,6 +232,8 @@ Files:
 
 - `hooks/register.tsx`: the mod (hooks, pane drawing)
 - `hooks/register.test.tsx`: tests
+- `hooks/color-sound.test.tsx`: tests for session colors and sounds (R8)
+- `sounds/`: the two sounds the mod plays
 - `hooks/probe*.test.tsx`: tests from the requirement test rounds, one file per round
 - `REQUIREMENTS.md`: what the pane must do, with IDs the tests refer to
 - `types/index.d.ts`: the types of the values the mod keeps in session state

@@ -186,7 +186,18 @@ export type Peer = {
   // The colors it gave its agents, by agent id and by Agent call id, so the
   // other panes draw them the same.
   hues?: Record<string, number>
+  // Its own color's name (one of the session colors: orange, blue, ...), so
+  // the other panes draw it in that color.
+  color?: string
+  // Whether the person chose that color (an automatic one gives way to it).
+  colorPicked?: boolean
 }
+
+// This session's own color: the Claude bar, its steps and its line in the
+// other sessions' panes. `isPicked` when the person chose it with
+// `/clawd-at-work color <name>`; otherwise it was picked to differ from the
+// other sessions' and moves if another takes the same one first.
+export type SessionColor = { name: string; isPicked: boolean }
 
 // A subagent running in another Claude Code session on this computer, read
 // from that session's own subagent log.
@@ -228,6 +239,10 @@ export type RemoteSession = {
   // What its main loop did last, in plain words; '' when unknown.
   activity: string
   agents: RemoteAgent[]
+  // Its color's name: the one it publishes when it runs this mod, else one
+  // picked here that no other session shown has. Absent in values kept by an
+  // earlier version.
+  color?: string
 }
 
 declare module 'claude-code' {
@@ -280,6 +295,8 @@ declare module 'claude-code' {
       remote: RemoteSession[]
       // Why the other sessions could not be read; null when they could.
       remoteError: string | null
+      // This session's color; null until session start picks one.
+      color: SessionColor | null
     }
   }
 }

@@ -431,7 +431,7 @@ test('every subagent shown has its own color, and keeps it when another starts',
   // The four already shown keep theirs.
   expect(first.every(c => second.includes(c))).toBe(true)
 
-  // The working session is drawn in a neutral grey, unlike any agent, and
+  // The working session is drawn in a muted color, unlike any agent, and
   // nothing of the other sessions is orange, this session's Claude bar color.
   const ui = await $.ui.mount(pane(60, 80))
   const sessionColor = String((await ui.find({ type: 'Text', text: /^working 0:3\d$/ }))?.props.color)

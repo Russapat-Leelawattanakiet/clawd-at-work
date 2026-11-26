@@ -35,14 +35,44 @@ const MAX_RUNS = 100
 const ORANGE = 'claude'
 // One color per agent, handed out in spawn order so parallel agents differ.
 // Fully saturated so each bar pops: cyan, violet, green, pink, blue, yellow.
-// No orange: that is the Claude bar's and the steps' color (HOT), so no agent
-// can be mistaken for the main loop.
+// No orange: that is the default Claude bar's and steps' color (HOT). An agent
+// never takes its own session's color either (nextHue), so no agent can be
+// mistaken for the main loop.
 const PALETTE = ['#00C8FF', '#9B4DFF', '#00E676', '#FF2E9A', '#3D6BFF', '#FFD400']
-// The Claude bar and plan steps: a hot Claude orange in the same saturation.
+// The Claude bar and plan steps by default: a hot Claude orange in the same saturation.
 const HOT = '#FF6B1A'
-// Other sessions' own lines (mark, words, bar): a neutral grey, so the
-// palette is left to agents and orange to this session's Claude bar.
-const SESSION_COLOR = '#A8A8A8'
+// Session colors: each session has one, for its Claude bar, its steps and
+// its line in the other sessions' panes. The person picks one with
+// `/clawd-at-work color <name>`; otherwise the first one no other session
+// has. A session's own agents never take its color (see nextHue).
+const SESSION_COLORS: readonly { name: string; hex: string }[] = [
+  { name: 'orange', hex: HOT },
+  { name: 'blue', hex: '#3D6BFF' },
+  { name: 'green', hex: '#00E676' },
+  { name: 'pink', hex: '#FF2E9A' },
+  { name: 'cyan', hex: '#00C8FF' },
+  { name: 'purple', hex: '#9B4DFF' },
+  { name: 'yellow', hex: '#FFD400' },
+  { name: 'red', hex: '#FF3B3B' },
+  { name: 'teal', hex: '#1DE9B6' },
+  { name: 'lime', hex: '#C6FF00' },
+]
+const isColorName = (name: unknown): name is string =>
+  typeof name === 'string' && SESSION_COLORS.some(c => c.name === name)
+// A color name's hex; an unknown or missing one reads as orange.
+const hexOf = (name: string | undefined) => SESSION_COLORS.find(c => c.name === name)?.hex ?? HOT
+// The agent palette slot a session color is, or -1: that session's agents skip it.
+const slotOf = (name: string | undefined) => PALETTE.indexOf(hexOf(name))
+
+// Sounds, from the mod's own sounds/ folder: `attention` when this session
+// waits for the person (a permission prompt, a question, a plan to approve),
+// `done` when a turn of at least DONE_SOUND_MIN_MS ends. One kind does not
+// sound again within SOUND_COOLDOWN_MS (a question sounds as its call starts,
+// and its session record says waiting a scan later: one sound). On or off for every session with
+// `/clawd-at-work sound on|off`, kept in the store.
+const SOUND_KEY = 'sound-on'
+const DONE_SOUND_MIN_MS = 10_000
+const SOUND_COOLDOWN_MS = 4_000
 // Tiny mini Clawd riding the bar, 3 characters: just its face, with the real
 // Clawd eyes (the notches of ▛█▜). The eyes glance left and right as it runs
 // and it blinks now and then; eyes shut once done, crossed out if it failed.
@@ -170,6 +200,7 @@ const context = atom({ plugin: 'clawd-at-work', key: 'context' } as const, null)
 const contextOpen = atom({ plugin: 'clawd-at-work', key: 'contextOpen' } as const, false)
 const stepsFolded = atom({ plugin: 'clawd-at-work', key: 'stepsFolded' } as const, false)
 const contextDetail = atom({ plugin: 'clawd-at-work', key: 'contextDetail' } as const, null)
+const sessionColor = atom({ plugin: 'clawd-at-work', key: 'color' } as const, null)
 // Pieces named on one line of the Context dropdown (MCP servers, memory files).
 const SHOWN_PIECES = 3
 
@@ -872,16 +903,18 @@ let remoteHues = new Set<number>()
 
 // Next palette slot after the newest agent's, so neighbours never match,
 // skipping the slots running agents (here or in other sessions) hold while
-// a free one is left.
-const nextHue = (list: readonly Run[]) => {
+// a free one is left. The slot `avoid` (the session's own color) is never
+// taken, so an agent is never mistaken for its session's Claude bar.
+const nextHue = (list: readonly Run[], avoid = -1) => {
   const agents = list.filter(r => r.kind === 'agent')
   const last = agents.at(-1)
-  const start = last?.hue === undefined ? 0 : (last.hue + 1) % PALETTE.length
+  let start = last?.hue === undefined ? 0 : (last.hue + 1) % PALETTE.length
+  if (start === avoid) start = (start + 1) % PALETTE.length
   const taken = new Set(remoteHues)
   for (const r of agents) if (r.status === 'running' && r.hue !== undefined) taken.add(r.hue % PALETTE.length)
   for (let i = 0; i < PALETTE.length; i++) {
     const hue = (start + i) % PALETTE.length
-    if (!taken.has(hue)) return hue
+    if (hue !== avoid && !taken.has(hue)) return hue
   }
   return start
 }
@@ -897,6 +930,7 @@ const discoverAgents = async ($: EngineInterface, agents: readonly AgentInfo[], 
   const known = new Set(list.flatMap(r => (r.kind === 'agent' && r.agentId ? [r.agentId] : [])))
   const fresh = agents.filter(a => !known.has(a.id) && toStatus(a.status) === 'running')
   if (fresh.length === 0) return
+  const avoid = slotOf((await read($, sessionColor))?.name)
   await update($, runs, l => {
     const added: Run[] = []
     for (const a of fresh) {
@@ -908,7 +942,7 @@ const discoverAgents = async ($: EngineInterface, agents: readonly AgentInfo[], 
         status: 'running',
         startedAt: now,
         tools: 0,
-        hue: nextHue([...l, ...added]),
+        hue: nextHue([...l, ...added], avoid),
         agentId: a.id,
       })
     }
@@ -1053,7 +1087,29 @@ const toPeer = (raw: unknown): Peer | undefined => {
     percent: typeof p.percent === 'number' ? Math.max(0, Math.min(100, Math.round(p.percent))) : 0,
     updatedAt: p.updatedAt,
     hues: huesOf(p.hues),
+    // Only a known color's name: a stored string is never drawn as a color.
+    ...(isColorName(p.color) ? { color: p.color, ...(p.colorPicked === true ? { colorPicked: true } : {}) } : {}),
   }
+}
+
+// The first session color none of `taken` has, by the list's order; orange
+// when every one is taken.
+const freeColor = (taken: ReadonlySet<string>) =>
+  SESSION_COLORS.find(c => !taken.has(c.name))?.name ?? SESSION_COLORS[0]!.name
+
+// This session's color, picked at session start when it has none: the first
+// one no other session publishes.
+const pickColor = async ($: EngineInterface) => {
+  if ((await read($, sessionColor)) !== null) return
+  const now = await $.clock.now()
+  const me = await read($, self)
+  const taken = new Set<string>()
+  for (const key of await $.store.keys().catch(() => [])) {
+    if (!key.startsWith(PEER_PREFIX) || (me !== null && key === `${PEER_PREFIX}${me.id}`)) continue
+    const peer = toPeer(await $.store.get(key).catch(() => undefined))
+    if (peer?.color !== undefined && now - peer.updatedAt <= PEER_STALE_MS) taken.add(peer.color)
+  }
+  await update($, sessionColor, old => old ?? { name: freeColor(taken), isPicked: false })
 }
 
 // A published color map, keeping only whole palette slots.
@@ -1097,6 +1153,7 @@ const shareStatus = async ($: EngineInterface) => {
       ? m.mood === 'ask' ? 'waiting' : 'working'
       : isAgentsOnly ? 'working' : s === null || s.isAborted ? 'idle' : s.isFailed ? 'failed' : 'done'
   const agentsPercent = Math.round(running.reduce((sum, r) => sum + percent(r, learned, now), 0) / Math.max(1, running.length))
+  const myColor = await read($, sessionColor)
   const mine: Peer = {
     id: me.id,
     cwd: me.cwd,
@@ -1112,6 +1169,7 @@ const shareStatus = async ($: EngineInterface) => {
         .filter(r => r.kind === 'agent' && r.hue !== undefined)
         .flatMap(r => [[r.id, r.hue!], ...(r.agentId ? [[r.agentId, r.hue!]] : [])]),
     ),
+    ...(myColor !== null ? { color: myColor.name, ...(myColor.isPicked ? { colorPicked: true } : {}) } : {}),
   }
   const shape = JSON.stringify({ ...mine, updatedAt: 0 })
   if (shape !== lastShared || now - lastSharedAt >= HEARTBEAT_MS || now < lastSharedAt) {
@@ -1122,6 +1180,8 @@ const shareStatus = async ($: EngineInterface) => {
 
   const found: Peer[] = []
   const heard = new Set<string>()
+  const fresh = new Set<string>()
+  const pickedPeers = new Set<string>()
   for (const key of await $.store.keys()) {
     if (!key.startsWith(PEER_PREFIX) || key === `${PEER_PREFIX}${me.id}`) continue
     const peer = toPeer(await $.store.get(key).catch(() => undefined))
@@ -1129,12 +1189,30 @@ const shareStatus = async ($: EngineInterface) => {
       await $.store.delete(key).catch(() => {})
       continue
     }
-    // Every session's agent colors, whatever its project, for Agents.
+    // Every session's agent colors and own color, whatever its project, for Agents.
     peerHues.set(peer.id, peer.hues ?? {})
+    // A color counts as taken only while its session still reports.
+    if (peer.color !== undefined && now - peer.updatedAt <= PEER_STALE_MS) {
+      peerColors.set(peer.id, peer.color)
+      if (peer.colorPicked) pickedPeers.add(peer.id)
+    } else peerColors.delete(peer.id)
     heard.add(peer.id)
+    if (now - peer.updatedAt <= PEER_STALE_MS) fresh.add(peer.id)
     if (now - peer.updatedAt <= PEER_STALE_MS && sameProject(peer.cwd, me.cwd)) found.push(peer)
   }
   for (const id of [...peerHues.keys()]) if (!heard.has(id)) peerHues.delete(id)
+  for (const id of [...peerColors.keys()]) if (!heard.has(id)) peerColors.delete(id)
+  livePeers = fresh
+  // Two sessions that started together may have taken the same color: the
+  // one whose id sorts later moves to a free one, and one the person chose
+  // stays put while an automatic one moves off it.
+  if (myColor !== null && !myColor.isPicked) {
+    const clash = [...peerColors].some(([id, name]) => name === myColor.name && (pickedPeers.has(id) || id < me.id))
+    if (clash) {
+      const name = freeColor(new Set(peerColors.values()))
+      if (name !== myColor.name) await update($, sessionColor, () => ({ name, isPicked: false }))
+    }
+  }
   // Sessions that need the person or are working come first, so they are
   // never the ones folded into "+N more".
   const rank: Record<Peer['state'], number> = { waiting: 0, working: 1, failed: 2, done: 3, idle: 4 }
@@ -1148,6 +1226,73 @@ const shareStatus = async ($: EngineInterface) => {
   const weekTokens = week?.tokens ?? 0
   if ((await read($, usage)).weekTokens !== weekTokens) await update($, usage, u => ({ ...u, weekTokens }))
 }
+
+// ---------------------------------------------------------------- sounds
+
+// Whether sounds are on (the store's setting, read at session start), the
+// machine's system as `uname -s` names it, and the mod's own folder. Module
+// values: a reload reads them again at its session.start.
+let isSoundOn = true
+let sysname: string | undefined
+let pluginRoot: string | undefined
+let isPlaying = false
+const lastSoundAt = new Map<string, number>()
+
+// The argv that plays a WAV file where `$.audio.play` cannot: a Windows or
+// Linux terminal has no player of its own. undefined on macOS, which uses it.
+const playerOf = (system: string, path: string): string[][] => {
+  if (system === 'Darwin') return []
+  if (system === 'Windows_NT') {
+    const quoted = path.replace(/\//g, '\\').replace(/'/g, "''")
+    return [['powershell', '-NoProfile', '-NonInteractive', '-Command', `(New-Object Media.SoundPlayer '${quoted}').PlaySync()`]]
+  }
+  return [['paplay', path], ['aplay', '-q', path]]
+}
+
+// Play one of the mod's sounds, unless sounds are off (the setting is read
+// from the store each time, so `sound off` in any session silences this one
+// too), one is playing, or the same kind (`key`, per session for
+// `attention`) sounded moments ago. Resolves 'played', 'skipped', or why it
+// could not play. Never awaited where it could hold up a tool, a prompt or a turn.
+const playSound = async ($: EngineInterface, kind: 'attention' | 'done', key: string = kind, isForced = false) => {
+  if (!isForced) isSoundOn = (await $.store.get(SOUND_KEY).catch(() => undefined)) !== false
+  if ((!isSoundOn && !isForced) || isPlaying) return 'skipped'
+  const now = await $.clock.now()
+  const last = lastSoundAt.get(key)
+  if (!isForced && last !== undefined && now >= last && now - last < SOUND_COOLDOWN_MS) return 'skipped'
+  lastSoundAt.set(key, now)
+  isPlaying = true
+  try {
+    sysname ??= (await $.session.machine().catch(() => undefined))?.sysname ?? ''
+    const asset = `sounds/${kind}.wav`
+    if (sysname === 'Darwin' || sysname === '') {
+      await $.audio.play({ asset })
+      return 'played'
+    }
+    pluginRoot ??= (await $.process.hookEnv().catch(() => ({}) as Record<string, string>)).CLAUDE_PLUGIN_ROOT
+    if (!pluginRoot) return "the mod's folder is unknown (no CLAUDE_PLUGIN_ROOT)"
+    const path = `${pluginRoot.replace(/[\\/]+$/, '')}/${asset}`
+    const failures: string[] = []
+    for (const argv of playerOf(sysname, path)) {
+      const ran = await $.process.run(argv, { timeoutMs: 10_000 }).catch((error: unknown) => {
+        failures.push(`${argv[0]}: ${error instanceof Error ? error.message : String(error)}`)
+        return undefined
+      })
+      if (ran?.exitCode === 0) return 'played'
+      if (ran) failures.push(`${argv[0]} exited ${ran.exitCode}${ran.stderr.trim() ? `: ${plainLine(ran.stderr.trim())}` : ''}`)
+    }
+    return `could not play ${path} (${failures.join('; ') || 'no player for this system'})`
+  } finally {
+    isPlaying = false
+  }
+}
+
+// Who waited for the person at the last scan: this session (from its own
+// record) and the others by id. The first scan after a load only notes them,
+// so a reload does not sound for what was already waiting.
+let isWaitSeeded = false
+let isSelfWaiting = false
+const waitingBefore = new Set<string>()
 
 // ---------------------------------------------------------------- other sessions
 
@@ -1176,6 +1321,10 @@ const SHOWN_REMOTE = 4
 // them beside their status: session id -> agent id or Agent call id -> slot.
 // An agent is drawn in its own session's color everywhere.
 const peerHues = new Map<string, Record<string, number>>()
+// The colors other sessions with this mod publish for themselves: session id
+// -> color name, and the ids of every session that publishes at all.
+const peerColors = new Map<string, string>()
+let livePeers = new Set<string>()
 
 // Where Claude Code keeps its files: the folder above `projects/` in this
 // session's transcript path. Set at session start; undefined until then.
@@ -1366,6 +1515,9 @@ const scanRemote = async ($: EngineInterface) => {
     })
     const live = new Set<string>()
     const found: RemoteSession[] = []
+    // This session's own record says when a dialog of its own waits for the
+    // person (a permission prompt too, which no event tells the mod).
+    let isSelfWaitingNow = false
     for (const file of records) {
       // Only the records: never the token files beside them.
       if (file.kind !== 'file' || !/^\d+\.json$/.test(file.name)) continue
@@ -1379,9 +1531,10 @@ const scanRemote = async ($: EngineInterface) => {
       }
       const id = plainOf(record.sessionId)
       const cwd = plainOf(record.cwd)
-      if (id === '' || cwd === '' || id === me || !/^[\w-]+$/.test(id)) continue
       const status = plainOf(record.status)
       const waitingFor = plainOf(record.waitingFor)
+      if (id !== '' && id === me) isSelfWaitingNow = status === 'waiting' || waitingFor !== ''
+      if (id === '' || cwd === '' || id === me || !/^[\w-]+$/.test(id)) continue
       const since = typeof record.statusUpdatedAt === 'number' ? record.statusUpdatedAt : file.mtimeMs
 
       const folder = `${claudeDir}/projects/${projectFolder(cwd)}`
@@ -1443,6 +1596,31 @@ const scanRemote = async ($: EngineInterface) => {
     isRemoteLive = found.some(r => r.state !== 'idle' || r.agents.some(a => a.status === 'running'))
     const before = await read($, remote)
 
+    // Each session's own color: the one it publishes when it runs this mod;
+    // else the one it was first shown in here, or a new one no other session
+    // shown (nor this one) has, starting from a slot its id picks.
+    const myColorName = (await read($, sessionColor))?.name
+    const takenColors = new Set<string>(myColorName !== undefined ? [myColorName] : [])
+    for (const r of found) {
+      const published = peerColors.get(r.id)
+      if (published !== undefined) {
+        r.color = published
+        takenColors.add(published)
+      }
+    }
+    const keptColors = new Map(before.map(r => [r.id, r.color] as const))
+    for (const r of [...found].sort((a, b) => a.id.localeCompare(b.id))) {
+      if (r.color !== undefined) continue
+      const kept = keptColors.get(r.id)
+      if (isColorName(kept) && !takenColors.has(kept)) r.color = kept
+      else {
+        const start = hueOf(r.id) % SESSION_COLORS.length
+        const free = SESSION_COLORS.map((_, i) => SESSION_COLORS[(start + i) % SESSION_COLORS.length]!.name)
+        r.color = free.find(name => !takenColors.has(name)) ?? free[0]!
+      }
+      takenColors.add(r.color)
+    }
+
     // An agent is drawn in the color its own session gave it (published beside
     // that session's status, when it runs this mod), so it reads the same in
     // every pane. Without one, it keeps the color it was first shown in here,
@@ -1452,27 +1630,47 @@ const scanRemote = async ($: EngineInterface) => {
     const used = PALETTE.map(() => 0)
     const own = (await read($, runs)).filter(r => r.kind === 'agent' && r.status === 'running')
     for (const r of own) used[(r.hue ?? 0) % PALETTE.length]!++
-    const unset: RemoteAgent[] = []
+    const unset: { a: RemoteAgent; avoid: number }[] = []
     for (const r of found) {
       const published = peerHues.get(r.id)
       for (const a of r.agents) {
         const hue = published?.[a.id] ?? (a.toolUseId !== '' ? published?.[a.toolUseId] : undefined) ?? kept.get(a.id)
         if (hue === undefined) {
-          unset.push(a)
+          unset.push({ a, avoid: slotOf(r.color) })
           continue
         }
         a.hue = hue % PALETTE.length
         if (a.status === 'running') used[a.hue]!++
       }
     }
-    for (const a of unset) {
-      a.hue = used.indexOf(Math.min(...used))
+    // A new one never takes its own session's color.
+    for (const { a, avoid } of unset) {
+      const fewest = Math.min(...used.filter((_, i) => i !== avoid))
+      a.hue = used.findIndex((k, i) => i !== avoid && k === fewest)
       if (a.status === 'running') used[a.hue]!++
     }
     remoteHues = new Set(found.flatMap(r => r.agents.filter(a => a.status === 'running').map(a => a.hue)))
 
     if (JSON.stringify(before) !== JSON.stringify(found)) await update($, remote, () => found)
     if ((await read($, remoteError)) !== failure) await update($, remoteError, () => failure)
+
+    // Sound when this session starts to wait for the person. A session with
+    // no pane of its own (it runs without this mod) is sounded for by one
+    // pane only: the one whose id sorts first among the sessions that publish.
+    const waitingNow = found.filter(r => r.state === 'waiting').map(r => r.id)
+    if (isWaitSeeded) {
+      if (isSelfWaitingNow && !isSelfWaiting) void playSound($, 'attention').catch(() => {})
+      const isElected = me !== undefined && [...livePeers].every(id => me <= id)
+      for (const id of waitingNow) {
+        if (isElected && !waitingBefore.has(id) && !livePeers.has(id)) {
+          void playSound($, 'attention', `attention:${id}`).catch(() => {})
+        }
+      }
+    }
+    isWaitSeeded = true
+    isSelfWaiting = isSelfWaitingNow
+    waitingBefore.clear()
+    for (const id of waitingNow) waitingBefore.add(id)
   } finally {
     isScanning = false
   }
@@ -1533,8 +1731,9 @@ const propOf = (look: Look, n: number) => {
   const frames = PROPS[look]
   return (frames[Math.floor(n / 2) % frames.length] ?? '').padEnd(PROP_WIDTH)
 }
-const propColor = (look: Look) =>
-  look === 'fail' ? 'error' : look === 'cheer' ? 'success' : look === 'ask' ? 'warning' : HOT
+// `hot` is the session's own color.
+const propColor = (look: Look, hot: string) =>
+  look === 'fail' ? 'error' : look === 'cheer' ? 'success' : look === 'ask' ? 'warning' : hot
 
 // The word beside Clawd for each look.
 const FEELS: Record<Look, string> = {
@@ -1580,9 +1779,13 @@ export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     await $.command.register({
       name: 'clawd-at-work',
-      description: 'Open the Claude at work pane (animated Clawd + skill/agent tracker)',
+      description: 'Open the Claude at work pane; `color <name>` sets this session color, `sound on|off|test` the sounds',
+      argumentHint: '[color <name>|sound on|off|test]',
     })
     void $.ui.open({ id: PANE, title: TITLE })
+
+    // Sounds on or off, as the person last set them in any session.
+    isSoundOn = (await $.store.get(SOUND_KEY).catch(() => undefined)) !== false
 
     // Bring the learned averages from earlier sessions into this one.
     const saved = await $.store.get(STORE_KEY).catch(() => undefined)
@@ -1602,6 +1805,8 @@ export const register: Register = on => {
     const repo = await $.session.repo().catch(() => null)
     const project = repo?.root ?? e.cwd
     if (sessionId) await update($, self, old => ({ id: sessionId, cwd: project, task: old?.task ?? '' }))
+    // This session's color, once: the first no other session has.
+    await pickColor($).catch(() => {})
 
     // Where Claude Code keeps every session's files, for the other sessions
     // shown under Agents: the folder above projects/ in this transcript's path.
@@ -1651,7 +1856,48 @@ export const register: Register = on => {
     return next(e)
   })
 
-  on('command.run', { command: 'clawd-at-work' }, async $ => {
+  on('command.run', { command: 'clawd-at-work' }, async ($, e) => {
+    const [verb = '', value = ''] = e.args.trim().toLowerCase().split(/\s+/)
+    const names = SESSION_COLORS.map(c => c.name).join(', ')
+    if (verb === 'color' || verb === 'colour') {
+      const now = await read($, sessionColor)
+      if (value === '') {
+        return { text: `This session's color is ${now?.name ?? 'orange'}${now?.isPicked ? '' : ' (picked automatically)'}. Colors: ${names}, or auto.` }
+      }
+      if (value === 'auto') {
+        const taken = new Set([...peerColors.values()])
+        await update($, sessionColor, () => ({ name: freeColor(taken), isPicked: false }))
+        return { text: `This session's color is now ${(await read($, sessionColor))?.name}, picked automatically.` }
+      }
+      if (!isColorName(value)) return { text: `No color named "${value}". Colors: ${names}, or auto.` }
+      await update($, sessionColor, () => ({ name: value, isPicked: true }))
+      // Its agents already running keep theirs; new ones skip this color.
+      return { text: `This session's color is now ${value}. The other sessions' panes show it within a few seconds.` }
+    }
+    if (verb === 'sound' || verb === 'sounds') {
+      if (value === 'on' || value === 'off') {
+        isSoundOn = value === 'on'
+        await $.store.set(SOUND_KEY, isSoundOn).catch(() => {})
+        return { text: `Sounds are ${value} (for every session).` }
+      }
+      if (value === 'test') {
+        const isOn = (await $.store.get(SOUND_KEY).catch(() => undefined)) !== false
+        const outcome = await playSound($, 'attention', 'attention', true).catch(
+          (error: unknown) => `failed: ${error instanceof Error ? error.message : String(error)}`,
+        )
+        const off = isOn ? '' : ' Sounds are off; turn them on with /clawd-at-work sound on.'
+        return {
+          text:
+            outcome === 'played'
+              ? `Played the "needs you" sound.${off}`
+              : outcome === 'skipped'
+                ? 'A sound is playing already; try again in a moment.'
+                : `No sound: ${outcome}`,
+        }
+      }
+      isSoundOn = (await $.store.get(SOUND_KEY).catch(() => undefined)) !== false
+      return { text: `Sounds are ${isSoundOn ? 'on' : 'off'}. Use /clawd-at-work sound on, off or test.` }
+    }
     const opened = await $.ui.open({ id: PANE, title: TITLE })
     return {
       text: opened.isPlaced
@@ -1789,6 +2035,11 @@ export const register: Register = on => {
       await update($, busySince, () => null)
       await update($, main, () => IDLE_MAIN)
       await finishAuto($).catch(() => {})
+      // The turn is over and the next move is the person's: sound, unless
+      // they stopped it themselves or it was over in a moment.
+      if (!e.isAborted && e.durationMs >= DONE_SOUND_MIN_MS) {
+        void playSound($, e.reason === 'error' || e.reason === 'refusal' ? 'attention' : 'done').catch(() => {})
+      }
       // Learn how long a main turn usually takes; interrupted or failed ones
       // would skew it.
       if (e.reason === 'answer') await learn($, MAIN_KEY, e.durationMs).catch(() => {})
@@ -1836,6 +2087,8 @@ export const register: Register = on => {
       const { action, doing } = titlesOf(e.tool, input)
       const mood = moodOf(e.tool)
       await update($, main, m => ({ ...m, tools: m.tools + 1, mood, activity: doing }))
+      // A question or a plan to approve waits for the person: sound now.
+      if (mood === 'ask') void playSound($, 'attention').catch(() => {})
       if (e.tool === 'TodoWrite') return next(e)
       // Step, feed and file bookkeeping never gets in the way of the call itself.
       const id = e.tool_use_id
@@ -1935,6 +2188,7 @@ export const register: Register = on => {
     const taken = new Set((await read($, runs)).map(r => r.id))
     let id = base
     for (let k = 2; taken.has(id); k++) id = `${base}#${k}`
+    const avoid = slotOf((await read($, sessionColor))?.name)
     await update($, runs, list => {
       const run: Run = {
         id,
@@ -1944,7 +2198,7 @@ export const register: Register = on => {
         status: 'running',
         startedAt: now,
         tools: 0,
-        hue: nextHue(list),
+        hue: nextHue(list, avoid),
       }
       return [...list, run].slice(-MAX_RUNS)
     })
@@ -1967,6 +2221,8 @@ export const register: Register = on => {
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
     const { Box, Button, Text } = $.ui.resolve(e)
+    // This session's own color: its Claude bar, steps, Recent and Files.
+    const hot = hexOf((await read($, sessionColor))?.name)
     const open = await read($, expanded)
     const n = await read($, frame)
     const since = await read($, busySince)
@@ -2141,7 +2397,7 @@ export const register: Register = on => {
     const glyphOf = (r: Run) =>
       r.status === 'running' ? SPIN[n % SPIN.length] : r.status === 'done' ? '✓' : '✗'
     const colorOf = (r: Run) =>
-      r.status === 'failed' ? 'error' : r.status === 'running' ? ORANGE : 'success'
+      r.status === 'failed' ? 'error' : r.status === 'running' ? hot : 'success'
 
     // A one-line row's short bar: up to 10 columns of what `free` leaves (one
     // goes to the space before it), none when fewer than 5 would fit.
@@ -2170,7 +2426,7 @@ export const register: Register = on => {
     // tool count when it still fits, then its task. The type is cut only to
     // leave the bar room.
     const compactAgentRow = (r: Run) => {
-      const color = r.status === 'failed' ? 'error' : PALETTE[(r.hue ?? 0) % PALETTE.length]
+      const color = r.status === 'failed' ? 'error' : PALETTE[(r.hue ?? 0) % PALETTE.length]!
       const pct = percent(r, learned, now)
       const tail = ` ${String(pct).padStart(3)}%  ${clock((r.endedAt ?? now) - r.startedAt)}`
       const name = clip(r.name, Math.max(10, columns - textWidth(` ${glyphOf(r)} ${tail}`) - 6))
@@ -2255,7 +2511,7 @@ export const register: Register = on => {
         <Text
           wrap="truncate-end"
           dimColor={r.status === 'done'}
-          color={r.status === 'failed' ? 'error' : r.status === 'running' ? ORANGE : undefined}
+          color={r.status === 'failed' ? 'error' : r.status === 'running' ? hot : undefined}
         >
           {` ${glyphOf(r)} ${clip(r.name, Math.max(8, columns - 5 - time.length))}  ${time}`}
         </Text>
@@ -2282,7 +2538,7 @@ export const register: Register = on => {
         <Text wrap="truncate-end">
           {'  '}
           <Text
-            color={isFailed ? 'error' : s.status === 'done' ? 'success' : isActive ? HOT : undefined}
+            color={isFailed ? 'error' : s.status === 'done' ? 'success' : isActive ? hot : undefined}
             dimColor={s.status === 'pending'}
           >
             {isFailed ? '✗' : s.status === 'done' ? '✓' : isActive ? SPIN[n % SPIN.length] : '○'}
@@ -2299,8 +2555,8 @@ export const register: Register = on => {
           {head}
           <Text wrap="truncate-end">
             {'    '}
-            <Text color={HOT}>{'━'.repeat(filled)}</Text>
-            <Text color={HOT} bold>{RUNNER[n % RUNNER.length]}</Text>
+            <Text color={hot}>{'━'.repeat(filled)}</Text>
+            <Text color={hot} bold>{RUNNER[n % RUNNER.length]}</Text>
             <Text dimColor>{'─'.repeat(track - filled)}</Text>
             {` ${String(pct).padStart(3)}%`}
             <Text dimColor>{`  ${clock(now - (s.startedAt ?? now))}`}</Text>
@@ -2333,15 +2589,15 @@ export const register: Register = on => {
       <Box flexDirection="column">
         <Text wrap="truncate-end">
           <Text bold>{' Claude   '}</Text>
-          <Text color={HOT}>{'━'.repeat(mainFilled)}</Text>
-          <Text color={HOT} bold>{mainRunner}</Text>
+          <Text color={hot}>{'━'.repeat(mainFilled)}</Text>
+          <Text color={hot} bold>{mainRunner}</Text>
           <Text dimColor>{'─'.repeat(mainTrack - mainFilled)}</Text>
           {` ${String(mainPct).padStart(3)}%`}
           <Text dimColor>{`  ${elapsed}`}</Text>
         </Text>
         <Text wrap="truncate-end">
           {'          '}
-          <Text color={HOT}>{mainNow.activity || 'thinking…'}</Text>
+          <Text color={hot}>{mainNow.activity || 'thinking…'}</Text>
           <Text dimColor>{`  step ${mainNow.steps} · ${mainNow.tools} tool${mainNow.tools === 1 ? '' : 's'}`}</Text>
         </Text>
       </Box>
@@ -2469,7 +2725,7 @@ export const register: Register = on => {
       return (
         <Text wrap="truncate-end">
           {'  '}
-          <Text color={f.status === 'failed' ? 'error' : f.status === 'running' ? HOT : 'success'}>
+          <Text color={f.status === 'failed' ? 'error' : f.status === 'running' ? hot : 'success'}>
             {f.status === 'failed' ? '✗' : ICONS[f.mood]}
           </Text>
           <Text dimColor={f.status === 'done'}>{` ${title}`}</Text>
@@ -2506,7 +2762,7 @@ export const register: Register = on => {
       <Text wrap="truncate-end">
         <Text bold>{' Files    '}</Text>
         {packed.map(f => (
-          <Text color={f.isEdited ? HOT : undefined} dimColor={!f.isEdited}>
+          <Text color={f.isEdited ? hot : undefined} dimColor={!f.isEdited}>
             {`${f.isEdited ? '✎' : '◦'} ${f.name}  `}
           </Text>
         ))}
@@ -2556,7 +2812,7 @@ export const register: Register = on => {
     // Sessions: the other sessions in this project, each with what it was
     // asked, its state and percent, and what it is doing while it works.
     const PEER_LOOK: Record<Peer['state'], { mark: string; color?: string }> = {
-      working: { mark: SPIN[n % SPIN.length]!, color: HOT },
+      working: { mark: SPIN[n % SPIN.length]! },
       waiting: { mark: '?', color: 'warning' },
       done: { mark: '✓', color: 'success' },
       failed: { mark: '✗', color: 'error' },
@@ -2567,15 +2823,17 @@ export const register: Register = on => {
       const isLive = p.state === 'working' || p.state === 'waiting'
       const taskRoom = Math.max(8, columns - 4 - (isLive ? pct.length : 0))
       const task = clip(p.task || 'new session', taskRoom)
+      // Its own color; a wait, a failure or a finish keeps the state's color on its mark.
+      const own = hexOf(p.color)
       return (
         <Box flexDirection="column">
           <Text wrap="truncate-end">
             {'  '}
-            <Text color={PEER_LOOK[p.state].color} dimColor={p.state === 'idle'}>
+            <Text color={PEER_LOOK[p.state].color ?? own} dimColor={p.state === 'idle'}>
               {PEER_LOOK[p.state].mark}
             </Text>
-            <Text dimColor={!isLive}>{` ${isLive ? padTo(task, taskRoom) : task}`}</Text>
-            {isLive && <Text color={PEER_LOOK[p.state].color}>{pct}</Text>}
+            <Text color={own} dimColor={!isLive}>{` ${isLive ? padTo(task, taskRoom) : task}`}</Text>
+            {isLive && <Text color={PEER_LOOK[p.state].color ?? own}>{pct}</Text>}
           </Text>
           {peerLines(p) === 2 && (
             <Text wrap="truncate-end" dimColor>
@@ -2647,17 +2905,16 @@ export const register: Register = on => {
       const nameRoom = Math.max(8, columns - 5 - textWidth(word))
       const name = r.isTitled ? clip(r.name, nameRoom) : clipStart(r.name, nameRoom)
       const mark = isWaiting ? (isFlash ? '!' : ' ') : r.state === 'working' ? SPIN[n % SPIN.length] : '○'
-      // A neutral color while it works, leaving the palette to the agents
-      // and orange to this session's Claude bar.
-      const own = SESSION_COLOR
+      // Its own color (the one it chose, when it runs this mod): mark, name and bar.
+      const own = hexOf(r.color)
       return (
         <Box flexDirection="column">
           <Text wrap="truncate-end">
             {' '}
-            <Text color={isWaiting ? 'warning' : r.state === 'working' ? own : undefined} dimColor={r.state === 'idle'} bold>
+            <Text color={isWaiting ? 'warning' : own} bold>
               {mark}
             </Text>
-            <Text bold dimColor={r.state === 'idle'}>{` ${name}`}</Text>
+            <Text color={own} bold>{` ${name}`}</Text>
             {'  '}
             <Text
               color={isWaiting ? 'warning' : r.state === 'working' ? own : undefined}
@@ -2731,7 +2988,7 @@ export const register: Register = on => {
                 <Text color={ORANGE} dimColor={!isBusy}>
                   {line}
                 </Text>
-                <Text color={propColor(look)} bold>
+                <Text color={propColor(look, hot)} bold>
                   {i === art.propRow ? prop : ' '.repeat(PROP_WIDTH)}
                 </Text>
               </Text>
@@ -2739,7 +2996,7 @@ export const register: Register = on => {
           </Box>
           <Box flexDirection="column" marginLeft={2}>
             <Text> </Text>
-            <Text bold color={isBusy ? ORANGE : undefined} dimColor={!isBusy}>
+            <Text bold color={isBusy ? hot : undefined} dimColor={!isBusy}>
               {label}
             </Text>
             <Text dimColor>{elapsed}</Text>

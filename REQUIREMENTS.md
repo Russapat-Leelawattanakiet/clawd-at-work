@@ -57,7 +57,7 @@ Each requirement has an ID so test reports can point at it. "Narrow" means a 40-
 - **R4.4** Under this session's agents, Agents lists every other Claude Code session on the computer that is working,
   waiting for the person or running subagents, in any project and with or without this mod: its name (the one set
   with /rename, else the title Claude gave it, else the name made from its folder, cut from the front when long), its
-  state, a grey bar while it works, what it does or waits for, and each subagent by its task (its type only when it
+  state, its name and a bar in that session's own color (R8.3), what it does or waits for, and each subagent by its task (its type only when it
   has none), with its bar, time and tool count. A finished subagent shows done for 10 minutes. An agent has the same
   color in every session's pane: the session running it picks one no running agent on the computer has (while six
   colors last) and publishes it. A session waiting for the person flashes and comes first. They are read from
@@ -87,6 +87,25 @@ Each requirement has an ID so test reports can point at it. "Narrow" means a 40-
   still show only its own work; only learned typical times, the week's token count and the Sessions list are shared.
   The exception is the other-session rows under Agents (R4.4), drawn below this session's own agents; a session
   shown there is not listed again under Sessions.
+
+## 8. Colors and sounds
+
+- **R8.1** Each session has a color of its own, for its Claude bar, active step, Recent, edited files and running
+  skills. Until the person picks one, a session takes the first color no other running session publishes; two that
+  started together and took the same one sort it out (the later id moves, and an automatic color moves off a picked one). Clawd stays orange.
+- **R8.2** `/clawd-at-work color <name>` picks the session's color from a fixed list (orange, blue, green, pink, cyan,
+  purple, yellow, red, teal, lime), `auto` hands the choice back, and no other name is accepted. A picked color is
+  kept even when another session has it too.
+- **R8.3** Every other session's line (under Agents and under Sessions) is drawn in that session's color: the one it
+  publishes when it runs this mod, else one picked by the pane that no other session shown has. Never grey, unless
+  idle.
+- **R8.4** A sound plays when this session starts to wait for the person: a permission prompt (read from its own
+  session record), a question or a plan to approve. A session without this mod that starts waiting is sounded for by
+  one pane only. Nothing already waiting when the pane first looks plays a sound, so a reload stays quiet.
+- **R8.5** A turn of 10 s or more that ends with an answer plays the done sound; an interrupted or quick one plays
+  nothing. `/clawd-at-work sound on|off` turns sounds on or off for every session; `sound test` plays one. A sound
+  never holds up a tool, prompt or turn, and one kind does not repeat within 4 s.
+- **R8.6** An agent never takes its own session's color.
 
 ## 7. Safety and robustness
 
