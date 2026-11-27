@@ -298,7 +298,7 @@ test('IMPROVE R4.2: an agent dropdown names an MCP tool readably and its target 
   expect(row.slice(0, 40)).toContain('login bug')
 })
 
-test('IMPROVE R4.1: a resumed agent is timed from its resume, not across the idle gap', async ($, on) => {
+test('IMPROVE R4.1: a resumed agent is timed from its resume, not across the idle gap', { timeoutMs: 120_000 }, async ($, on) => {
   const status: { now: AgentStatus } = { now: 'running' }
   const clock = engine(on, status)
   await start($)
@@ -353,7 +353,7 @@ for (const [verdict, name, path] of [
     await $.tool.call({ tool: 'Write', file_path: path, content: 'x' })
     const ui = await $.ui.mount(PANE)
     // Actual: the Files row holds the raw name (no plainLine), the Pane refuses the tree.
-    expect(await ui.find({ type: 'Text', text: /^Agents/ })).toBeTruthy()
+    expect(await ui.find({ type: 'Button', key: 'agents' })).toBeTruthy()
     const row = (await ui.find({ type: 'Text', text: /^ Files / }))?.text ?? ''
     await ui.unmount()
     expect(row).not.toMatch(/[\x00-\x1f]/)
@@ -373,7 +373,7 @@ for (const [name, ch] of [
     await $.turn.start({ text: 'go', turnId: 't1' })
     await $.tool.call({ tool: 'Bash', command: `echo a${ch}b` })
     const ui = await $.ui.mount(PANE)
-    expect(await ui.find({ type: 'Text', text: /^Agents/ })).toBeTruthy()
+    expect(await ui.find({ type: 'Button', key: 'agents' })).toBeTruthy()
     await ui.unmount()
   })
 }

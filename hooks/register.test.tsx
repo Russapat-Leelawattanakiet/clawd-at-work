@@ -42,6 +42,8 @@ const AGENT_END = {
 // agents the engine also lists that started with no agent.spawn (a forked
 // skill). A command with `exit 1` in it fails. `breakdown` is what
 // `$.session.usage({ breakdown })` answers as the context's breakdown.
+// `hidden` are spawned agents the list leaves out (a workflow's, or one the
+// engine has dropped).
 type Listed = { id: string; description: string; type: string; status: AgentStatus }
 const engine = (
   on: On,
@@ -49,6 +51,7 @@ const engine = (
   stored: Record<string, unknown> = {},
   forked: Listed[] = [],
   breakdown?: unknown,
+  hidden: Set<string> = new Set(),
 ) => {
   const clock = mock.clock(on, { now: 1_000 })
   mock.store(on, stored)
@@ -65,12 +68,16 @@ const engine = (
   }))
   on('session.measure', (_, e) => ({ changed: e.changed }))
   on('turn.complete', (_, e) => ({ text: e.answer }))
-  on('tool.call', (_, e) =>
-    String((e as { command?: unknown }).command ?? '').includes('exit 1')
-      ? { isError: true as const, result: 'failed', text: 'failed' }
-      : { result: {} },
-  )
-  on('agent.spawn', () => ({ agentId: `a${++spawned}`, model: 'test' }))
+  // A command with `hang up` in it throws, so the mod never hears its end.
+  on('tool.call', (_, e) => {
+    const command = String((e as { command?: unknown }).command ?? '')
+    if (command.includes('hang up')) throw new Error('lost')
+    return command.includes('exit 1') ? { isError: true as const, result: 'failed', text: 'failed' } : { result: {} }
+  })
+  on('agent.spawn', (_, e) => {
+    if (e.prompt === 'throw') throw new Error('spawn failed')
+    return { agentId: `a${++spawned}`, model: 'test' }
+  })
   on('agent.list', () => ({
     value: [
       ...Array.from({ length: spawned }, (_, i) => ({
@@ -78,7 +85,7 @@ const engine = (
         description: 'find code',
         type: 'Explore',
         status: i + 1 === spawned ? status.now : ('completed' as const),
-      })),
+      })).filter(a => !hidden.has(a.id)),
       ...forked.map(a => ({ ...a })),
     ],
   }))
@@ -138,7 +145,7 @@ test('in a short pane every running agent still shows, one line each', async ($,
   // 20 rows: the Claude bar, Usage and the plan leave room for one two-row agent.
   const SHORT = { ...PANE, props: { ...PANE.props, scroll: { offset: 0, bodyRows: 20 } } }
   const ui = await $.ui.mount(SHORT)
-  expect((await ui.find({ type: 'Text', text: /^Agents/ }))?.text).toBe('Agents   2 running')
+  expect((await ui.find({ type: 'Button', key: 'agents' }))?.text).toBe('▾ Agents   2 running')
   // Each keeps a short bar of its own between its type and percent.
   const rows = await ui.findAll({ type: 'Text', text: /^ ◐ (Explore|claude-code-guide) ━*(▛█▜|▜█▛|███)─* +\d+%/ })
   expect(rows.map(r => r.text.split(' ')[2])).toEqual(['Explore', 'claude-code-guide'])
@@ -218,6 +225,92 @@ test('an agent row shows an estimated bar that ends at 100%', async ($, on) => {
   expect((await ui.find({ type: 'Button', text: /Explore/ }))?.text).toMatch(/✓/)
   expect((await ui.find({ type: 'Text', text: /%/ }))?.text).toMatch(/100%/)
   await ui.unmount()
+})
+
+// The agent's own turn end is what ends its row: the list can lag behind it,
+// leave the agent out (a workflow's) or drop it before a poll sees it end.
+const agentRow = async ($: Parameters<Parameters<typeof test>[1]>[0]) => {
+  const ui = await $.ui.mount(PANE)
+  const row = (await ui.find({ type: 'Button', text: /Explore/ }))?.text
+  const pct = (await ui.find({ type: 'Text', text: /%/ }))?.text
+  await ui.unmount()
+  return { row, pct }
+}
+
+test('an agent whose turn ended is done even while the list still says running', async ($, on) => {
+  const clock = engine(on, { now: 'running' })
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+  await $.agent.spawn(SPAWN)
+  await clock.set(1_000 + 90_000)
+  expect((await agentRow($)).pct).toMatch(/ 95%/)
+
+  await $.turn.complete(AGENT_END)
+  let { row, pct } = await agentRow($)
+  expect(row).toMatch(/✓/)
+  expect(pct).toMatch(/100%/)
+
+  // The lagging list never brings it back.
+  await clock.advance(3_000)
+  ;({ row, pct } = await agentRow($))
+  expect(row).toMatch(/✓/)
+  expect(pct).toMatch(/100%/)
+})
+
+test('a workflow agent, which the list never names, ends with its turn', async ($, on) => {
+  engine(on, { now: 'running' }, {}, [], undefined, new Set(['a1']))
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+  await $.agent.spawn({ ...SPAWN, workflow: { runId: 'wf_1', agentIndex: 1 } } as never)
+  expect((await agentRow($)).row).toMatch(/◐/)
+
+  await $.turn.complete(AGENT_END)
+  const { row, pct } = await agentRow($)
+  expect(row).toMatch(/✓/)
+  expect(pct).toMatch(/100%/)
+})
+
+test('an agent the list dropped before a poll saw it end is done', async ($, on) => {
+  const hidden = new Set<string>()
+  const clock = engine(on, { now: 'running' }, {}, [], undefined, hidden)
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+  await $.agent.spawn(SPAWN)
+  await clock.advance(2_000)
+  expect((await agentRow($)).row).toMatch(/◐/)
+
+  hidden.add('a1')
+  await clock.advance(2_000)
+  expect((await agentRow($)).row).toMatch(/✓/)
+})
+
+test('an unlisted agent that went quiet with no turn end is let go', { timeoutMs: 120_000 }, async ($, on) => {
+  const clock = engine(on, { now: 'running' }, {}, [], undefined, new Set(['a1']))
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+  await $.agent.spawn({ ...SPAWN, workflow: { runId: 'wf_1', agentIndex: 1 } } as never)
+  await clock.advance(60_000)
+  expect((await agentRow($)).row).toMatch(/◐/)
+
+  await clock.advance(20 * 60_000)
+  expect((await agentRow($)).row).not.toMatch(/◐/)
+})
+
+test('an unlisted agent whose last call never ended is still let go', { timeoutMs: 300_000 }, async ($, on) => {
+  const clock = engine(on, { now: 'running' }, {}, [], undefined, new Set(['a1']))
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+  await $.agent.spawn({ ...SPAWN, workflow: { runId: 'wf_1', agentIndex: 1 } } as never)
+  await $.tool.call({ tool: 'Bash', command: 'hang up', agentId: 'a1' }).catch(() => {})
+  // A call under way keeps it running a while...
+  await clock.advance(20 * 60_000)
+  expect((await agentRow($)).row).toMatch(/◐/)
+  // ...but not forever.
+  await clock.advance(15 * 60_000)
+  expect((await agentRow($)).row).not.toMatch(/◐/)
+})
+
+test('a spawn that throws leaves no row running forever', async ($, on) => {
+  engine(on, { now: 'running' })
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+  await $.agent.spawn({ ...SPAWN, prompt: 'throw' }).catch(() => {})
+  const { row } = await agentRow($)
+  expect(row ?? '').not.toMatch(/◐/)
 })
 
 test('each agent bar has a tiny 3-character mini Clawd in its own color', async ($, on) => {
@@ -377,6 +470,31 @@ test('Steps is a dropdown: open it shows the newest 6 steps, folded none', async
   // Pressed again: the six once more.
   await ui.press({ key: 'steps' })
   expect(await steps(ui)).toEqual(['4', '5', '6', '7', '8', '9'])
+  await ui.unmount()
+})
+
+test('Agents is a dropdown: folded it keeps only its heading and counts', async ($, on) => {
+  const status: { now: AgentStatus } = { now: 'running' }
+  engine(on, status)
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+  await $.agent.spawn(SPAWN)
+  await $.turn.complete(AGENT_END)
+  await $.agent.spawn({ ...SPAWN, tool_use_id: 'tu2', description: 'still going' })
+
+  const ui = await $.ui.mount(PANE)
+  // Open at first: both rows, the finished one counted beside the running one.
+  expect((await ui.find({ type: 'Button', key: 'agents' }))?.text).toBe('▾ Agents   1 running · 1 done')
+  expect(await ui.findAll({ type: 'Button', text: /Explore/ })).toHaveLength(2)
+
+  // Pressed: folded to its heading, which still counts them.
+  await ui.press({ key: 'agents' })
+  expect((await ui.find({ type: 'Button', key: 'agents' }))?.text).toBe('▸ Agents   1 running · 1 done')
+  expect(await ui.findAll({ type: 'Button', text: /Explore/ })).toHaveLength(0)
+  expect(await ui.find({ type: 'Text', text: /%/ })).toBeUndefined()
+
+  // Pressed again: the rows once more.
+  await ui.press({ key: 'agents' })
+  expect(await ui.findAll({ type: 'Button', text: /Explore/ })).toHaveLength(2)
   await ui.unmount()
 })
 

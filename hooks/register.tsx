@@ -130,6 +130,12 @@ const DEFAULT_MS: Record<string, number> = {
 }
 const FALLBACK_MS = 90_000
 const MAX_ESTIMATE = 95
+// An agent row the engine's list never named (a workflow's) and that has done
+// nothing this long, with no call under way, is taken as ended: its turn's end
+// was missed (a reload, a stalled attempt the workflow retried).
+const AGENT_QUIET_MS = 15 * 60_000
+// A spawn that has not answered its agent's id this long never will.
+const SPAWN_PENDING_MS = 30_000
 // Recent runs weigh more: the running mean counts at most this many.
 const LEARN_WINDOW = 10
 
@@ -199,6 +205,7 @@ const remoteError = atom({ plugin: 'clawd-at-work', key: 'remoteError' } as cons
 const context = atom({ plugin: 'clawd-at-work', key: 'context' } as const, null)
 const contextOpen = atom({ plugin: 'clawd-at-work', key: 'contextOpen' } as const, false)
 const stepsFolded = atom({ plugin: 'clawd-at-work', key: 'stepsFolded' } as const, false)
+const agentsFolded = atom({ plugin: 'clawd-at-work', key: 'agentsFolded' } as const, false)
 const contextDetail = atom({ plugin: 'clawd-at-work', key: 'contextDetail' } as const, null)
 const sessionColor = atom({ plugin: 'clawd-at-work', key: 'color' } as const, null)
 // Pieces named on one line of the Context dropdown (MCP servers, memory files).
@@ -919,6 +926,11 @@ const nextHue = (list: readonly Run[], avoid = -1) => {
   return start
 }
 
+// Agents whose run ended, by id, as their own turn.complete said. Kept beside
+// the rows because that end can come before the spawn has answered the id.
+// A turn start or a resume takes the agent off again.
+const endedAgents = new Map<string, Run['status']>()
+
 // Add a row for each running agent the engine lists that the pane has not
 // seen: loops the engine starts with no `agent.spawn` (a forked skill, such as
 // a review running in the background) arrive this way. Ones already finished
@@ -926,9 +938,12 @@ const nextHue = (list: readonly Run[], avoid = -1) => {
 // answered its agent's id yet, wait: that agent is the row being spawned.
 const discoverAgents = async ($: EngineInterface, agents: readonly AgentInfo[], now: number) => {
   const list = await read($, runs)
-  if (list.some(r => r.kind === 'agent' && r.status === 'running' && r.agentId === undefined)) return
+  const isSpawning = (r: Run) =>
+    r.kind === 'agent' && r.status === 'running' && r.agentId === undefined && now - r.startedAt < SPAWN_PENDING_MS
+  if (list.some(isSpawning)) return
   const known = new Set(list.flatMap(r => (r.kind === 'agent' && r.agentId ? [r.agentId] : [])))
-  const fresh = agents.filter(a => !known.has(a.id) && toStatus(a.status) === 'running')
+  // One whose turn already ended is not running, whatever a lagging list says.
+  const fresh = agents.filter(a => !known.has(a.id) && !endedAgents.has(a.id) && toStatus(a.status) === 'running')
   if (fresh.length === 0) return
   const avoid = slotOf((await read($, sessionColor))?.name)
   await update($, runs, l => {
@@ -950,8 +965,44 @@ const discoverAgents = async ($: EngineInterface, agents: readonly AgentInfo[], 
   })
 }
 
+// When an agent row last did something. A call under way counts as activity
+// for at most CALL_ACTIVE_MS: one whose end was never heard (cut, or its hook
+// failed) must not keep the row running forever. A shell call's own limit is
+// ten minutes.
+const CALL_ACTIVE_MS = 15 * 60_000
+const lastActiveOf = (r: Run) =>
+  (r.calls ?? []).reduce((at, c) => Math.max(at, c.endedAt ?? c.startedAt + CALL_ACTIVE_MS), r.startedAt)
+
+// End the running agent rows `pick` names, as `status`, at `now`. A first run
+// that finished teaches its type's typical time, unless `isTimed` is false
+// (an end found late, whose time says nothing).
+const endRuns = async (
+  $: EngineInterface,
+  pick: (r: Run) => boolean,
+  status: Run['status'],
+  now: number,
+  isTimed = true,
+) => {
+  const ending = (await read($, runs)).filter(r => r.kind === 'agent' && r.status === 'running' && pick(r))
+  if (ending.length === 0) return
+  const ids = new Set(ending.map(r => r.id))
+  await update($, runs, l =>
+    l.map(r =>
+      ids.has(r.id) && r.status === 'running'
+        ? { ...r, status, endedAt: now, ...(status === 'done' ? { isLearned: true } : {}) }
+        : r,
+    ),
+  )
+  if (status !== 'done' || !isTimed) return
+  for (const r of ending) if (!r.isLearned) await learn($, r.name, now - r.startedAt).catch(() => {})
+}
+
 // Sync agent runs with what the engine reports, adding any it runs that the
 // pane has not seen, and learn from the ones that just finished successfully.
+// The list only ever ends a row: it can still say running after the agent's
+// turn ended, so only a turn start or a resume runs a row again. A row the list
+// no longer names has ended: listed once and dropped, or never listed (a
+// workflow's) and quiet too long.
 const pollAgents = async ($: EngineInterface) => {
   const agents = await $.agent.list()
   const byId = new Map(agents.map(a => [a.id, a]))
@@ -959,29 +1010,38 @@ const pollAgents = async ($: EngineInterface) => {
   await discoverAgents($, agents, now)
   const list = await read($, runs)
 
-  const changes = new Map<string, Partial<Run>>()
-  const finished: Run[] = []
-  for (const r of list) {
-    const info = r.kind === 'agent' && r.agentId ? byId.get(r.agentId) : undefined
-    if (!info) continue
-    const status = toStatus(info.status)
-    if (status === r.status) continue
-    const change: Partial<Run> = { status, endedAt: status === 'running' ? undefined : now }
-    if (status === 'done' && !r.isLearned) {
-      change.isLearned = true
-      finished.push(r)
-    }
-    changes.set(r.id, change)
+  const listed = new Set<string>()
+  const ends = new Map<Run['status'], Set<string>>()
+  const endAs = (status: Run['status'], id: string) => {
+    if (!ends.has(status)) ends.set(status, new Set())
+    ends.get(status)!.add(id)
   }
-  if (changes.size === 0) return
-
-  await update($, runs, l =>
-    l.map(r => {
-      const change = changes.get(r.id)
-      return change ? { ...r, ...change } : r
-    }),
+  const endLate = new Set<string>()
+  // A spawn answers its agent's id as the agent starts: a row still without
+  // one this long after has no agent behind it.
+  const orphans = new Set(
+    list
+      .filter(r => r.kind === 'agent' && r.status === 'running' && r.agentId === undefined)
+      .filter(r => now - r.startedAt >= SPAWN_PENDING_MS)
+      .map(r => r.id),
   )
-  for (const r of finished) await learn($, r.name, now - r.startedAt)
+  for (const r of list) {
+    if (r.kind !== 'agent' || r.agentId === undefined) continue
+    const info = byId.get(r.agentId)
+    if (info) {
+      if (!r.isListed) listed.add(r.id)
+      const status = toStatus(info.status)
+      if (r.status === 'running' && status !== 'running') endAs(status, r.id)
+    } else if (r.status === 'running') {
+      const ended = endedAgents.get(r.agentId)
+      if (ended !== undefined) endAs(ended, r.id)
+      else if (r.isListed || now - lastActiveOf(r) > AGENT_QUIET_MS) endLate.add(r.id)
+    }
+  }
+  if (listed.size > 0) await update($, runs, l => l.map(r => (listed.has(r.id) ? { ...r, isListed: true } : r)))
+  for (const [status, ids] of ends) await endRuns($, r => ids.has(r.id), status, now)
+  if (endLate.size > 0) await endRuns($, r => endLate.has(r.id), 'done', now, false)
+  if (orphans.size > 0) await endRuns($, r => orphans.has(r.id), 'failed', now)
 }
 
 // A token count in a few characters: 950, 12.3k, 4.1M. Counts that would
@@ -1471,6 +1531,10 @@ const readAgents = async ($: EngineInterface, folder: string, now: number, live:
       agentLogs.set(path, log)
       // A long log is read from inside a line: drop that partial line.
       if (isLong) log.carry = '\u0000'
+    } else if (!log.isDone) {
+      // A stopped agent writes no last answer; its meta file still says it finished.
+      const meta = await $.fs.read(`${folder}/agent-${id}.meta.json`).catch(() => '')
+      if (/"finished"\s*:\s*true/.test(meta)) log.isDone = true
     }
     if (file.size > log.offset) {
       await readAgentLog($, path, file.size, log).catch(() => {})
@@ -1985,6 +2049,7 @@ export const register: Register = on => {
       await update($, main, () => ({ ...IDLE_MAIN, activity: 'thinking…', mood: 'think' as const }))
     } else {
       const id = e.agentId
+      endedAgents.delete(id)
       const isKnown = (await read($, runs)).some(r => r.kind === 'agent' && r.agentId === id)
       if (isKnown) {
         await patch($, r => r.kind === 'agent' && r.agentId === id, {
@@ -2044,7 +2109,11 @@ export const register: Register = on => {
       // would skew it.
       if (e.reason === 'answer') await learn($, MAIN_KEY, e.durationMs).catch(() => {})
     } else {
-      // An agent's turn ended: ask the engine for its real status now.
+      // An agent's run is one turn: its end ends the row, whatever the list
+      // says yet (it lags, drops agents, and never names a workflow's).
+      const status: Run['status'] = e.isAborted || e.reason === 'error' ? 'failed' : 'done'
+      endedAgents.set(loop, status)
+      await endRuns($, r => r.agentId === loop, status, now).catch(() => {})
       await pollAgents($).catch(() => {})
     }
     return next(e)
@@ -2173,6 +2242,7 @@ export const register: Register = on => {
   on('agent.spawn', async ($, e, next) => {
     const now = await $.clock.now()
     const resumed = e.resume?.agentId
+    if (resumed) endedAgents.delete(resumed)
     if (resumed && (await read($, runs)).some(r => r.kind === 'agent' && r.agentId === resumed)) {
       // Timed from the resume, not across the idle time before it. A follow-up
       // is not a whole run, so it teaches no typical time.
@@ -2202,11 +2272,29 @@ export const register: Register = on => {
       }
       return [...list, run].slice(-MAX_RUNS)
     })
-    const out = await next(e)
+    let out: Awaited<ReturnType<typeof next>>
+    try {
+      out = await next(e)
+    } catch (error) {
+      // Nothing started here: the row must not run on with no agent behind it.
+      await $.clock
+        .now()
+        .then(endedAt => patch($, r => r.id === id, { status: 'failed', endedAt }))
+        .catch(() => {})
+      throw error
+    }
     // Guarded: a throw here would reach the .catch, which spawns the agent again.
     const agentId = out.agentId
     if (agentId) {
       await patch($, r => r.id === id, { agentId }).catch(() => {})
+      // Its run may have ended before the spawn answered.
+      const ended = endedAgents.get(agentId)
+      if (ended !== undefined) {
+        await $.clock
+          .now()
+          .then(at => endRuns($, r => r.id === id, ended, at))
+          .catch(() => {})
+      }
     } else {
       // Refused or answered by a hook: nothing actually started.
       await $.clock
@@ -2283,6 +2371,9 @@ export const register: Register = on => {
     // The heading is a dropdown: open (the default) it shows SHOWN_STEPS steps,
     // folded none.
     const isStepsOpen = !(await read($, stepsFolded))
+    // Agents is a dropdown too: open (the default) it lists this session's
+    // agents and the other sessions'; folded, only its heading and counts.
+    const isAgentsOpen = !(await read($, agentsFolded))
     const planStart = isAuto
       ? Math.max(0, stepsNow.length - SHOWN_STEPS)
       : Math.max(0, Math.min(firstOpen - 2, stepsNow.length - SHOWN_STEPS))
@@ -2354,18 +2445,18 @@ export const register: Register = on => {
       1 + (r.state === 'working' ? 1 + (r.activity !== '' ? 1 : 0) : 0) + (r.state === 'waiting' ? 1 : 0) + 2 * r.agents.length
     const compactRows = (r: RemoteSession) =>
       1 + (r.state === 'working' ? 1 : 0) + r.agents.filter(a => a.status === 'running').length
-    const remoteCapped = remoteNow.slice(0, SHOWN_REMOTE)
+    const remoteCapped = isAgentsOpen ? remoteNow.slice(0, SHOWN_REMOTE) : []
     const isRemoteCompact = remoteCapped.reduce((k, r) => k + fullRows(r), 0) > remoteBudget
     const remoteRowsOf = isRemoteCompact ? compactRows : fullRows
     const remoteShown: RemoteSession[] = []
-    let remoteUsed = remoteFailure !== null ? 1 : 0
+    let remoteUsed = isAgentsOpen && remoteFailure !== null ? 1 : 0
     for (const r of remoteCapped) {
       // The first session always shows, so one waiting for the person is never hidden.
       if (remoteShown.length > 0 && remoteUsed + remoteRowsOf(r) > remoteBudget) break
       remoteShown.push(r)
       remoteUsed += remoteRowsOf(r)
     }
-    const hiddenRemote = remoteNow.length - remoteShown.length
+    const hiddenRemote = isAgentsOpen ? remoteNow.length - remoteShown.length : 0
     if (hiddenRemote > 0) remoteUsed += 1
     const ownRoom = Math.max(3, room - remoteUsed)
     const agentBudget = Math.max(2, Math.floor(ownRoom * 0.7))
@@ -2377,9 +2468,10 @@ export const register: Register = on => {
     const isCompact = runningAgentRuns.length * 2 > agentBudget
     const heightOf = (r: Run) =>
       isCompact ? 1 : 2 + (open.includes(r.id) ? Math.max(1, Math.min(SHOWN_CALLS, r.calls?.length ?? 0)) : 0)
-    const picked = new Set(runningAgentRuns.map(r => r.id))
-    let used = runningAgentRuns.reduce((sum, r) => sum + heightOf(r), 0)
+    const picked = new Set(isAgentsOpen ? runningAgentRuns.map(r => r.id) : [])
+    let used = isAgentsOpen ? runningAgentRuns.reduce((sum, r) => sum + heightOf(r), 0) : 0
     for (const r of [...agents].reverse()) {
+      if (!isAgentsOpen) break
       if (picked.has(r.id)) continue
       // With nothing running, the newest agent still shows, even past the budget.
       if (picked.size > 0 && used + heightOf(r) > agentBudget) break
@@ -2387,7 +2479,7 @@ export const register: Register = on => {
       used += heightOf(r)
     }
     const shownAgents = agents.filter(r => picked.has(r.id))
-    const hiddenAgents = agents.length - shownAgents.length
+    const hiddenAgents = isAgentsOpen ? agents.length - shownAgents.length : 0
     const skillRoom = Math.max(1, ownRoom - Math.max(2, used + (hiddenAgents > 0 ? 1 : 0)))
 
     // The bar fills what the row leaves after indent, percent, time and tools.
@@ -2975,6 +3067,18 @@ export const register: Register = on => {
       )
     }
     const remoteAgents = remoteNow.reduce((k, r) => k + r.agents.filter(a => a.status === 'running').length, 0)
+    // The Agents heading: what runs here and elsewhere, folded or open. Folded,
+    // finished ones are counted too, since none of them shows.
+    const doneHere = agents.length - runningAgentRuns.length
+    const agentsCount = [
+      runningAgentRuns.length > 0 ? `${runningAgentRuns.length} running` : '',
+      doneHere > 0 && (runningAgentRuns.length > 0 || !isAgentsOpen) ? `${doneHere} done` : '',
+      remoteAgents > 0 ? `${remoteAgents} in other sessions` : '',
+    ]
+      .filter(Boolean)
+      .join(' · ')
+      .replace(/^(?=.)/, '   ')
+    const toggleAgents = () => update($, agentsFolded, isFolded => !isFolded)
 
     const art = mascot(n, look)
     const prop = propOf(look, n)
@@ -3012,16 +3116,13 @@ export const register: Register = on => {
         {filesNow.length > 0 && filesRow}
         {(since !== null || stepsNow.length > 0 || isSummaryShown || filesNow.length > 0) && <Text> </Text>}
         {peersShown.length > 0 && sessionsRowsShown}
-        <Text wrap="truncate-end">
-          <Text bold>Agents</Text>
-          <Text dimColor>
-            {runningAgentRuns.length > 0
-              ? `   ${runningAgentRuns.length} running${agents.length > runningAgentRuns.length ? ` · ${agents.length - runningAgentRuns.length} done` : ''}`
-              : ''}
-            {remoteAgents > 0 ? `${runningAgentRuns.length > 0 ? ' ·' : '  '} ${remoteAgents} in other sessions` : ''}
+        <Button key="agents" plain onPress={toggleAgents}>
+          <Text wrap="truncate-end">
+            <Text bold>{`${isAgentsOpen ? '▾' : '▸'} Agents`}</Text>
+            <Text dimColor>{clip(agentsCount, Math.max(4, columns - 8))}</Text>
           </Text>
-        </Text>
-        {agents.length === 0 ? (
+        </Button>
+        {!isAgentsOpen ? null : agents.length === 0 ? (
           remoteShown.length === 0 && <Text dimColor> none yet</Text>
         ) : (
           shownAgents.map(isCompact ? compactAgentRow : agentRow)
@@ -3029,7 +3130,7 @@ export const register: Register = on => {
         {hiddenAgents > 0 && <Text dimColor>{` +${hiddenAgents} more finished`}</Text>}
         {remoteShown.map(remoteRow)}
         {hiddenRemote > 0 && <Text dimColor>{` +${hiddenRemote} more sessions`}</Text>}
-        {remoteFailure !== null && (
+        {isAgentsOpen && remoteFailure !== null && (
           <Text wrap="truncate-end" color="error">{` other sessions: ${remoteFailure}`}</Text>
         )}
         <Text bold>Skills</Text>

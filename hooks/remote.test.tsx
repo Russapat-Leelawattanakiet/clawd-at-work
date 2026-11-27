@@ -150,7 +150,7 @@ test('other sessions show under Agents: their name, state, bar and running subag
   await settle(clock)
 
   const ui = await $.ui.mount(pane(60, 80))
-  expect((await ui.find({ type: 'Text', text: /^Agents/ }))?.text).toMatch(/^Agents\s+1 in other sessions$/)
+  expect((await ui.find({ type: 'Button', key: 'agents' }))?.text).toMatch(/^▾ Agents\s+1 in other sessions$/)
   // The one waiting for the person comes first, with what it waits for.
   expect((await ui.find({ type: 'Text', text: /genome-m6-mvp-999d414c-0e/ }))?.text).toMatch(
     /^ [! ] genome-m6-mvp-999d414c-0e {2}needs you$/,
@@ -313,7 +313,7 @@ test('a subagent that hands back shows as done, its session idle', async ($, on)
   expect((await ui.find({ type: 'Text', text: /find the parser/ }))?.text).toMatch(/^ {3}✓ find the parser tests$/)
   expect((await ui.find({ type: 'Text', text: /review the fix/ }))?.text).toMatch(/^ {3}✓ review the fix$/)
   // Nothing of it runs: the heading counts no agent in other sessions.
-  expect((await ui.find({ type: 'Text', text: /^Agents/ }))?.text).toMatch(/^Agents\s*$/)
+  expect((await ui.find({ type: 'Button', key: 'agents' }))?.text).toMatch(/^▾ Agents\s*$/)
   expect(await ui.find({ type: 'Text', text: /999d414c-0e/ })).toBeDefined()
   await ui.unmount()
 })

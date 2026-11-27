@@ -18,7 +18,7 @@ is doing and how far along it is.
     ━━━━━━━━━▛█▜─────────────  41%  0:12
  Files    ✎ register.tsx  ✎ README.md  ◦ index.d.ts
 
-Agents   1 running · 1 in other sessions
+▾ Agents   1 running · 1 in other sessions
 ▸ ◐ Explore  find the config loader
     ━━━━━━━━━━━━▜█▛─────────  48%  0:21 · 7 tools
  ! …mvp-999d414c-0e  needs you
@@ -73,7 +73,9 @@ Skills
 - **Files.** The files Claude has edited (`✎`, first) and read (`◦`) since your last prompt, with `+N` for the ones that
   don't fit. Files a subagent edits are listed too; files it only reads are not.
 - **Agents.** Every subagent Claude starts, newest first, each in its own color, with an estimated progress bar, run
-  time and tool count. Click a row to open a dropdown of its latest tool calls and how long each took.
+  time and tool count. Click a row to open a dropdown of its latest tool calls and how long each took. The **Agents**
+  heading is a dropdown too: click it (`▾` → `▸`) to fold the whole section to its heading, which keeps counting what
+  runs and what finished, here and in other sessions.
   Below them, every **other Claude Code session on this computer** that is working, waiting for you or running
   subagents, in any project and whether or not it has this mod. It shows by its name: the one you gave it with
   `/rename`, else the title Claude gave it (`Ticket 5 branch`); only a session with neither shows the name made from
@@ -155,6 +157,7 @@ There is nothing to set up: the pane opens when a session starts and updates by 
 | Reopen the pane after closing it | Type `/clawd-at-work` |
 | See an agent's tool calls | Click its row in **Agents** (click again to close) |
 | Hide or show the steps | Click the **Steps** (or **Plan**) heading |
+| Hide or show the agents | Click the **Agents** heading |
 | Pick this session's color | `/clawd-at-work color blue` (`/clawd-at-work color` lists them; `auto` picks one for you) |
 | Turn sounds off or on | `/clawd-at-work sound off` / `/clawd-at-work sound on` (for every session) |
 | Hear the "needs you" sound | `/clawd-at-work sound test` |

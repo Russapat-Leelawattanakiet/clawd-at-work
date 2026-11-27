@@ -30,6 +30,9 @@ export type Run = {
   calls?: Call[]
   // Agents: set once its duration has been fed into the learned averages.
   isLearned?: boolean
+  // Agents: set once `$.agent.list()` has named it, so a row the list later
+  // drops is known to have ended (a workflow's agents are never listed).
+  isListed?: boolean
   // Skills: the loop that loaded it (a subagent's id; absent on the main loop),
   // so the skill counts as active until that loop's turn ends.
   loopId?: string
@@ -275,6 +278,8 @@ declare module 'claude-code' {
       // Whether the Steps (or Plan) list is folded to its heading; open, it
       // shows up to 6 steps.
       stepsFolded: boolean
+      // Whether the Agents section is folded to its heading and counts.
+      agentsFolded: boolean
       // The breakdown the dropdown shows; null until first opened.
       contextDetail: ContextDetail | null
       // The main loop's recent tool calls, newest last; cleared by each new prompt.

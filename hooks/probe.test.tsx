@@ -396,7 +396,7 @@ test('BUG R7.2: an agent spawned with no description does not crash the pane', a
   await $.agent.spawn({ ...SPAWN, description: undefined } as never)
   const ui = await $.ui.mount(PANE)
   // Actual: render throws reading r.detail.length, so nothing draws.
-  expect(await ui.find({ type: 'Text', text: /^Agents/ })).toBeTruthy()
+  expect(await ui.find({ type: 'Button', key: 'agents' })).toBeTruthy()
   await ui.unmount()
 })
 
@@ -526,7 +526,7 @@ test('OK R7.2: odd plan and tool inputs never crash the pane', async ($, on) => 
   await ui.unmount()
   await $.tool.call({ tool: 'TodoWrite', todos: [] })
   const ui2 = await $.ui.mount(PANE)
-  expect(await ui2.find({ type: 'Text', text: /^Agents/ })).toBeTruthy()
+  expect(await ui2.find({ type: 'Button', key: 'agents' })).toBeTruthy()
   await ui2.unmount()
 })
 
@@ -675,7 +675,7 @@ for (const [verdict, name, ch] of [
     await $.turn.start({ text: 'go', turnId: 't1' })
     await $.tool.call({ tool: 'Bash', command: `printf 'a${ch}b' > out.txt` })
     const ui = await $.ui.mount(PANE)
-    expect(await ui.find({ type: 'Text', text: /^Agents/ })).toBeTruthy()
+    expect(await ui.find({ type: 'Button', key: 'agents' })).toBeTruthy()
     await ui.unmount()
   })
 }
